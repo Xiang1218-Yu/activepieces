@@ -1,0 +1,66 @@
+import { createAction, Property } from '@activepieces/pieces-framework';
+import { BodyType, Message } from '@microsoft/microsoft-graph-types';
+import { microsoftOutlookAuth } from '../common/auth';
+import { outlookCommon } from '../common/client';
+import { messageIdDropdown } from '../common/props';
+import { forwardEmailActionOutputSchema } from '../output-schemas';
+
+export const forwardEmailAction = createAction({
+	auth: microsoftOutlookAuth,
+	name: 'forwardEmail',
+	classification: 'WRITE',
+	displayName: 'Forward Email',
+	description: 'Forwards an email message.',
+	audience: 'both',
+	aiMetadata: { description: 'Forwards an existing Outlook message (by message ID) to new recipients, preserving the original body and attachments and prepending an optional comment. Use this to pass an existing email along rather than composing a new one. Not idempotent: each call sends a new forwarded email.', idempotent: false },
+	outputSchema: forwardEmailActionOutputSchema,
+	props: {
+		messageId: messageIdDropdown({
+			displayName: 'Email',
+			description: 'Select the email message to forward.',
+			required: true,
+		}),
+		recipients: Property.Array({
+			displayName: 'To Email(s)',
+			required: true,
+		}),
+		comment: Property.LongText({
+			displayName: 'Comment',
+			description: 'Optional comment to include with the forwarded message.',
+			required: false,
+		}),
+	},
+	async run(context) {
+		const { messageId, comment } = context.propsValue;
+		const recipients = context.propsValue.recipients as string[];
+
+		const client = outlookCommon.createClient(context.auth);
+
+		const message = await client.api(`${outlookCommon.mailboxPrefix(context.auth)}/messages/${messageId}`).get();
+
+		const messagePayload: Message = {
+			toRecipients: recipients.map((mail) => ({
+				emailAddress: {
+					address: mail,
+				},
+			})),
+			body: {
+				contentType: 'html',
+				content: (comment ?? '') + '<br><br>' + message.body.content,
+			},
+			attachments: message.attachments,
+		};
+
+		await client
+			.api(`${outlookCommon.mailboxPrefix(context.auth)}/messages/${messageId}/forward`)
+			.post({
+				message:messagePayload,
+			});
+
+		return {
+			success: true,
+			message: 'Email forwarded successfully.',
+			messageId,
+		};
+	},
+});

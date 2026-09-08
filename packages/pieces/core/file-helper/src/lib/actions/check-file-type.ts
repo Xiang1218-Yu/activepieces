@@ -1,0 +1,44 @@
+import { createAction, Property } from '@activepieces/pieces-framework';
+import { predefinedMimeTypes } from '../common/mimeTypes';
+import mime from 'mime-types';
+import { checkFileTypeActionOutputSchema } from '../output-schemas';
+
+export const checkFileType = createAction({
+  audience: 'both',
+  name: 'checkFileType',
+  classification: 'READ',
+  displayName: 'Check file type',
+  description: 'Check MIME type of a file and filter based on selected types',
+  aiMetadata: { description: 'Determines the MIME type of a file from its extension and reports whether it matches the selected MIME type. Use it as a guard before a format-specific step (e.g. only continue for images or PDFs); use Get File Name if you only want the name, or Read File to get the contents. Detection is extension-based only - contents are never sniffed, so the extension is trusted as-is and only a missing or unrecognized one falls back to application/octet-stream; read-only and idempotent.', idempotent: true },
+  outputSchema: checkFileTypeActionOutputSchema,
+  props: {
+    file: Property.File({
+      displayName: 'File to Check',
+      required: true,
+    }),
+    mimeTypes: Property.StaticDropdown({
+      displayName: 'Select MIME Types',
+      required: true,
+      options: {
+        options: predefinedMimeTypes,
+      }, 
+      description: 'Choose one or more MIME types to check against the file.',
+    }),
+  },
+  async run(context) {
+    const file = context.propsValue.file;
+    
+    const selectedMimeTypes = context.propsValue.mimeTypes;
+
+    // Determine the MIME type of the file
+    const fileType = file.extension ? mime.lookup(file.extension) || 'application/octet-stream' : 'application/octet-stream';
+
+    // Check if the file's MIME type matches any of the selected MIME types.
+    const isMatch = fileType && selectedMimeTypes.includes(fileType);
+
+    return {
+      mimeType: fileType || 'unknown',
+      isMatch,
+    };
+  },
+});

@@ -1,0 +1,105 @@
+---
+title: "Hobbyist Installation"
+sidebarTitle: "Hobby (Docker)"
+description: "Single container with an embedded database, for personal use on one machine"
+---
+
+<Note>
+Best for personal projects on one machine. It runs on an embedded database, so it cannot scale, cannot move to Enterprise, and moving off it means starting over.
+
+Unless you're happy with that, use [Self hosting](/install/options/docker-compose) instead.
+</Note>
+
+## Install
+
+Run this anywhere:
+
+```bash
+docker run -d --name activepieces -p 8080:80 \
+  -v ~/.activepieces:/root/.activepieces \
+  -e AP_DB_TYPE=PGLITE \
+  -e AP_REDIS_TYPE=MEMORY \
+  -e AP_FRONTEND_URL="http://localhost:8080" \
+  activepieces/activepieces:latest
+```
+
+Or hand it to your AI assistant:
+
+<Prompt description="Install Activepieces with an AI assistant" icon="sparkles" actions={["copy", "cursor"]}>
+Install Activepieces on this machine for personal use with a single Docker container. Run `docker run -d --name activepieces -p 8080:80 -v ~/.activepieces:/root/.activepieces -e AP_DB_TYPE=PGLITE -e AP_REDIS_TYPE=MEMORY -e AP_FRONTEND_URL="http://localhost:8080" activepieces/activepieces:latest`. If port 8080 is already in use, pick a free port and change both the `-p` mapping and `AP_FRONTEND_URL` to match. When it finishes, wait until `curl http://localhost:8080/api/v1/health` responds, then tell me the URL to open.
+</Prompt>
+
+<Info>
+**Requirements**
+- [Docker](https://docs.docker.com/get-docker/), and nothing else.
+</Info>
+
+Everything runs in one container with the database embedded, so there is no PostgreSQL or Redis to set up. Your data lives in `~/.activepieces` on your machine.
+
+## Open Activepieces
+
+Go to [http://localhost:8080](http://localhost:8080), or `http://<your-server-ip>:<your-port>` if you installed on a remote server or changed the port.
+
+The first account you create becomes the administrator. There is no default username or password.
+
+## Make webhooks reachable (optional)
+
+Skip this if your machine already has a public URL.
+
+Webhooks and app triggers need an address that third parties can reach. On a personal machine, expose it with a tunnel such as ngrok:
+
+```bash
+ngrok http 8080
+```
+
+Then set `AP_FRONTEND_URL` to the ngrok URL and run the container again.
+
+<Frame>
+  <img src="/resources/screenshots/docker-ngrok.png" alt="Copying the public URL from ngrok" />
+</Frame>
+
+<Note>
+ngrok is fine for testing but not suitable for production. In production, point `AP_FRONTEND_URL` at your real domain.
+</Note>
+
+## Upgrade
+
+Back up first, since the container is replaced:
+
+```bash
+docker stop activepieces
+cp -r ~/.activepieces ~/.activepieces-backup
+```
+
+Then pull the new image and start a fresh container with the same command you used to install:
+
+```bash
+docker rm activepieces
+docker pull activepieces/activepieces:latest
+```
+
+Your data survives because it lives in `~/.activepieces`, not in the container.
+
+## Uninstall
+
+Remove the container and keep your data:
+
+```bash
+docker rm -f activepieces
+```
+
+Delete your data too:
+
+```bash
+rm -rf ~/.activepieces
+```
+
+## Good to know
+
+<Warning>
+This setup cannot be upgraded to Enterprise. Enterprise does not support the embedded database, so moving to it means starting over. If that is a possibility, start with [Self hosting](/install/options/docker-compose).
+</Warning>
+
+<Note>
+It runs on [PGLite](https://pglite.dev/) (embedded PostgreSQL) and an in-memory queue, which supports a single instance on a single machine. For production or multi-instance setups, use [Self hosting](/install/options/docker-compose) with PostgreSQL and Redis.
+</Note>
