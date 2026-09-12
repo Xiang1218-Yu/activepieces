@@ -32,6 +32,7 @@ import { agentHelpers } from './ee/agent/agent-helpers'
 import { assertAgentsResolveInProject } from './ee/agent/agent-service'
 import { agentModule } from './ee/agent/agent.module'
 import { alertsModule } from './ee/alerts/alerts-module'
+import { failureRoutingModule } from './failure-routing/failure-routing.module'
 import { apiKeyModule } from './ee/api-keys/api-key-module'
 import { platformOAuth2Service } from './ee/app-connections/platform-oauth2-service'
 import { appCredentialModule } from './ee/app-credentials/app-credentials.module'
@@ -255,6 +256,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
     await app.register(agentsModule)
     await app.register(platformUserModule)
     await app.register(alertsModule)
+    await app.register(failureRoutingModule)
     await app.register(invitationModule)
     await app.register(workerModule)
     await workerCapacity.setup()

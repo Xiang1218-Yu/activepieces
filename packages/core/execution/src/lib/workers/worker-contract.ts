@@ -104,6 +104,7 @@ export type WorkerToApiContract = {
     savePersonalizationResult(input: SavePersonalizationResultRequest): Promise<void>
     savePersonalizationPrefill(input: SavePersonalizationPrefillRequest): Promise<void>
     sendPersonalizationProgress(input: SendPersonalizationProgressRequest): Promise<void>
+    reportFailureDeliveryResult(input: ReportFailureDeliveryResultRequest): Promise<void>
 }
 
 export type SendAgentEventRequest = {
@@ -383,6 +384,15 @@ export type SendPersonalizationProgressRequest = {
     researchToken: string | null
     phase: string
     message: string
+}
+
+export type ReportFailureDeliveryResultRequest = {
+    deliveryId: string
+    platformId: string
+    projectId: string
+    success: boolean
+    httpStatus?: number
+    errorMessage?: string
 }
 
 export const LONG_RUNNING_RPC_METHODS: readonly string[] = [

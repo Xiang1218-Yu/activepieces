@@ -1,5 +1,6 @@
 import { isNil, Permission } from '@activepieces/core-utils';
 import { t } from 'i18next';
+import { Siren } from 'lucide-react';
 import { useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -17,6 +18,7 @@ import { projectCollectionUtils } from '@/features/projects';
 import { useAuthorization } from '@/hooks/authorization-hooks';
 import { platformHooks } from '@/hooks/platform-hooks';
 import { authenticationSession } from '@/lib/authentication-session';
+import { routesThatRequireProjectId } from '@/lib/route-utils';
 
 import { ProjectDashboardPageHeader } from './project-dashboard-page-header';
 
@@ -98,6 +100,15 @@ export const ProjectDashboardLayoutHeader = () => {
       label: t('Runs'),
       icon: HistoryIcon,
       hasPermission: checkAccess(Permission.READ_RUN),
+      show: true,
+    },
+    {
+      to: authenticationSession.appendProjectRoutePrefix(
+        routesThatRequireProjectId.failureRouting,
+      ),
+      label: t('Failure Routing'),
+      icon: Siren,
+      hasPermission: checkAccess(Permission.READ_ALERT),
       show: true,
     },
     {

@@ -54,6 +54,7 @@ import { PlatformEntity } from '../platform/platform.entity'
 import { ProjectEntity } from '../project/project-entity'
 import { StoreEntryEntity } from '../store-entry/store-entry-entity'
 import { FieldEntity } from '../tables/field/field.entity'
+import { FailureDeliveryEntity, FailureRoutingRuleEntity } from '../failure-routing/failure-routing.entity'
 import { CellEntity } from '../tables/record/cell.entity'
 import { RecordEntity } from '../tables/record/record.entity'
 import { TableWebhookEntity } from '../tables/table/table-webhook.entity'
@@ -94,6 +95,8 @@ function getEntities(): EntitySchema<unknown>[] {
         PlatformConfigurationEntity,
         SecretManagerEntity,
         AlertEntity,
+        FailureRoutingRuleEntity,
+        FailureDeliveryEntity,
         UserInvitationEntity,
         AIProviderEntity,
         AiToolConfigEntity,

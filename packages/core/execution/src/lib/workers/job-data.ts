@@ -362,6 +362,9 @@ export const EventDestinationJobData = z.object({
     webhookId: z.string(),
     webhookUrl: z.string(),
     payload: z.unknown(), // EE audit-event schema stays in @activepieces/shared; engine does not need it
+    // Set when the delivery was created by a failure routing rule. The worker
+    // reports the transport outcome back so the delivery leaves PENDING.
+    failureDeliveryId: z.string().optional(),
     jobType: z.literal(WorkerJobType.EVENT_DESTINATION),
 })
 

@@ -165,6 +165,54 @@ export const emailService = (log: FastifyBaseLogger) => ({
         })
     },
 
+    async sendFailureRoutingNotification({
+        platformId,
+        recipients,
+        projectName,
+        flowName,
+        runUrl,
+        createdAt,
+        category,
+        retryCount,
+    }: SendFailureRoutingNotificationArgs): Promise<boolean> {
+        if (EDITION_IS_NOT_PAID) {
+            return false
+        }
+
+        log.info({
+            name: '[emailService#sendFailureRoutingNotification]',
+            flowName,
+            category,
+            recipientCount: recipients.length,
+        })
+
+        if (recipients.length === 0) {
+            return false
+        }
+
+        // Failure-routing notifications only go to the rule's configured recipients;
+        // they deliberately never merge in project alert subscribers.
+        const emails = unique(recipients.map((email) => email.toLowerCase()))
+
+        await emailSender(log).send({
+            emails,
+            platformId,
+            templateData: {
+                name: 'issue-created',
+                vars: {
+                    projectName,
+                    flowName,
+                    createdAt,
+                    runUrl,
+                    failedStepDisplayName: 'Flow run',
+                    failedStepNumber: '',
+                    failedStepMessage: `Status: ${category} (attempt ${retryCount + 1})`,
+                },
+            },
+        })
+        return true
+    },
+
     async sendOtp({ platformId, userIdentity, otp, type }: SendOtpArgs): Promise<void> {
         if (EDITION_IS_NOT_PAID && type !== OtpType.EMAIL_LOGIN) {
             return
@@ -322,4 +370,15 @@ type IssueCreatedArgs = {
     failedStepNumber?: number
     failedStepMessage?: string
     flowOwnerEmail?: string
+}
+
+type SendFailureRoutingNotificationArgs = {
+    platformId: string
+    recipients: string[]
+    projectName: string
+    flowName: string
+    runUrl: string
+    createdAt: string
+    category: string
+    retryCount: number
 }

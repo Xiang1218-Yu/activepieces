@@ -22,6 +22,7 @@ import { pieceMetadataService } from '../../pieces/metadata/piece-metadata-servi
 import { shouldBlockRunOnCredits } from '../../platform/billing-provider'
 import { projectService } from '../../project/project-service'
 import { dedupeService } from '../../trigger/dedupe-service'
+import { failureRoutingService } from '../../failure-routing/failure-routing.service'
 import { triggerEventService } from '../../trigger/trigger-events/trigger-event.service'
 import { triggerRunStats } from '../../trigger/trigger-run/trigger-run-stats'
 import { triggerSourceService } from '../../trigger/trigger-source/trigger-source-service'
@@ -389,6 +390,16 @@ export function createHandlers(log: FastifyBaseLogger, assignment: WorkerGroupAs
 
         async sendPersonalizationProgress(input) {
             return chatPersonalizationService(log).sendProgress(input)
+        },
+
+        async reportFailureDeliveryResult(input) {
+            await failureRoutingService(log).reportDeliveryResult({
+                deliveryId: input.deliveryId,
+                platformId: input.platformId,
+                success: input.success,
+                httpStatus: input.httpStatus,
+                errorMessage: input.errorMessage,
+            })
         },
     }
 }

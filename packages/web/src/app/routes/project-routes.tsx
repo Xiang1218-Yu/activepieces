@@ -43,6 +43,13 @@ const RunsPage = lazyWithRetry(
   () => import('./runs').then((m) => ({ default: m.RunsPage })),
   'runs',
 );
+const FailureRoutingPage = lazyWithRetry(
+  () =>
+    import('./failure-routing').then((m) => ({
+      default: m.FailureRoutingPage,
+    })),
+  'failure-routing',
+);
 const FlowRunPage = lazyWithRetry(
   () => import('./runs/id').then((m) => ({ default: m.FlowRunPage })),
   'flow-run',
@@ -164,6 +171,20 @@ export const projectRoutes = [
           <PageTitle title="Runs">
             <SuspenseWrapper>
               <RunsPage />
+            </SuspenseWrapper>
+          </PageTitle>
+        </RoutePermissionGuard>
+      </ProjectDashboardLayout>
+    ),
+  }),
+  ...ProjectRouterWrapper({
+    path: routesThatRequireProjectId.failureRouting,
+    element: (
+      <ProjectDashboardLayout>
+        <RoutePermissionGuard requiredPermissions={Permission.READ_ALERT}>
+          <PageTitle title="Failure Routing">
+            <SuspenseWrapper>
+              <FailureRoutingPage />
             </SuspenseWrapper>
           </PageTitle>
         </RoutePermissionGuard>
