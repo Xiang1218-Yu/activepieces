@@ -1,8 +1,14 @@
 import {
   ChatUIResponse,
   FormResponse,
+  ResolveFormSessionRunRequestBody,
+  StartFormSessionRequestBody,
+  StartFormSessionResponse,
+  TrackFormFieldInteractionRequestBody,
   USE_DRAFT_QUERY_PARAM_NAME,
   HumanInputFormResult,
+  FORM_SESSION_ID_HEADER,
+  TrackFormSessionEventRequestBody,
 } from '@activepieces/shared';
 import semVer from 'semver';
 
@@ -15,14 +21,32 @@ export const humanInputApi = {
     });
   },
   getChatUI: (flowId: string, useDraft?: boolean) => {
-    return api.get<ChatUIResponse>(`/v1/human-input/chat/${flowId}`, {
+    return api.get<ChatUIResponse>(`/v1/chat/${flowId}`, {
       [USE_DRAFT_QUERY_PARAM_NAME]: useDraft ?? false,
     });
+  },
+  startSession: (body: StartFormSessionRequestBody, visitorKey: string) => {
+    return api.post<StartFormSessionResponse>(
+      '/v1/form-analytics/sessions',
+      body,
+      undefined,
+      { [FORM_SESSION_ID_HEADER]: visitorKey },
+    );
+  },
+  trackEvent: (body: TrackFormSessionEventRequestBody) => {
+    return api.post('/v1/form-analytics/events', body);
+  },
+  trackFieldInteraction: (body: TrackFormFieldInteractionRequestBody) => {
+    return api.post('/v1/form-analytics/field-interactions', body);
+  },
+  resolveRun: (body: ResolveFormSessionRunRequestBody) => {
+    return api.post('/v1/form-analytics/resolve-run', body);
   },
   submitForm: async (
     formResult: FormResponse,
     useDraft: boolean,
     data: unknown,
+    sessionId?: string,
   ) => {
     const processedData = await processData(
       data as Record<string, unknown>,
@@ -32,16 +56,20 @@ export const humanInputApi = {
       useDraft ? 'draft' : 'locked',
       formResult.props.waitForResponse,
     );
+    const headers: Record<string, string> = {
+      'Content-Type':
+        processedData instanceof FormData
+          ? 'multipart/form-data'
+          : 'application/json',
+    };
+    if (sessionId && !useDraft) {
+      headers[FORM_SESSION_ID_HEADER] = sessionId;
+    }
     return api.post<HumanInputFormResult | null>(
       `/v1/webhooks/${formResult.id}${suffix}`,
       processedData,
       undefined,
-      {
-        'Content-Type':
-          processedData instanceof FormData
-            ? 'multipart/form-data'
-            : 'application/json',
-      },
+      headers,
     );
   },
   sendMessage: async ({

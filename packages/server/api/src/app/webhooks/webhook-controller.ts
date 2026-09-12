@@ -1,6 +1,7 @@
 
 import { wideEvent } from '@activepieces/server-utils'
 import {
+    FORM_SESSION_ID_HEADER,
     RAW_PAYLOAD_HEADER,
     WebhookUrlParams,
     WebsocketClientEvent,
@@ -38,6 +39,7 @@ export const webhookController: FastifyPluginAsyncZod = async (app) => {
                 execute: true,
                 ...extractRawPayload(request),
                 ...extractHeaderFromRequest(request),
+                ...extractFormSessionId(request),
             })
             wideEvent.set({ webhook: { responseStatus: response.status } })
             await reply
@@ -71,6 +73,7 @@ export const webhookController: FastifyPluginAsyncZod = async (app) => {
                 execute: true,
                 ...extractRawPayload(request),
                 ...extractHeaderFromRequest(request),
+                ...extractFormSessionId(request),
             })
             wideEvent.set({ webhook: { responseStatus: response.status } })
             await reply
@@ -155,6 +158,14 @@ function extractRawPayload(request: FastifyRequest): { payload?: Record<string, 
         && !Buffer.isBuffer(request.body)
     if (isRawPayload) {
         return { payload: request.body as Record<string, unknown> }
+    }
+    return {}
+}
+
+function extractFormSessionId(request: FastifyRequest): { formSessionId?: string } {
+    const sessionId = request.headers[FORM_SESSION_ID_HEADER]
+    if (typeof sessionId === 'string' && sessionId.length > 0 && sessionId.length <= 21) {
+        return { formSessionId: sessionId }
     }
     return {}
 }

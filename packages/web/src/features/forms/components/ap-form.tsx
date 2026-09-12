@@ -37,6 +37,7 @@ import { api } from '@/lib/api';
 
 import { Checkbox } from '../../../components/ui/checkbox';
 import { humanInputApi } from '../api/human-input-api';
+import { useFormTracking } from '../hooks/use-form-tracking';
 
 type ApFormProps = {
   form: FormResponse;
@@ -138,6 +139,9 @@ const ApForm = ({ form, useDraft }: ApFormProps) => {
   const { data: showPoweredBy } = flagsHooks.useFlag<boolean>(
     ApFlagId.SHOW_POWERED_BY_IN_FORM,
   );
+  const { sessionIdRef, trackStart, trackFieldInteraction, trackSubmitOutcome, resolveRun } =
+    useFormTracking({ form, useDraft });
+
   const reactForm = useForm({
     defaultValues,
     resolver: zodResolver(schema.properties),
@@ -145,13 +149,18 @@ const ApForm = ({ form, useDraft }: ApFormProps) => {
 
   const { mutate, isPending } = useMutation<HumanInputFormResult | null, Error>(
     {
-      mutationFn: async () =>
-        humanInputApi.submitForm(
+      mutationFn: async () => {
+        trackStart();
+        return humanInputApi.submitForm(
           form,
           useDraft,
           putBackQuotesForInputNames(reactForm.getValues(), inputs.current),
-        ),
-      onSuccess: (formResult) => {
+          sessionIdRef.current ?? undefined,
+        );
+      },
+      onSuccess: async (formResult) => {
+        await trackSubmitOutcome('success');
+        void resolveRun();
         switch (formResult?.type) {
           case HumanInputFormResultTypes.MARKDOWN: {
             setMarkdownResponse(formResult.value as string);
@@ -172,9 +181,15 @@ const ApForm = ({ form, useDraft }: ApFormProps) => {
             break;
         }
       },
-      onError: (error) => {
+      onError: async (error) => {
+        const status = api.isError(error)
+          ? error.response?.status
+          : undefined;
+        await trackSubmitOutcome(
+          status === 408 ? 'timeout' : 'failure',
+        );
+        void resolveRun();
         if (api.isError(error)) {
-          const status = error.response?.status;
           if (status === 404) {
             toast.error(t('Flow not found'), {
               description: t(
@@ -216,7 +231,10 @@ const ApForm = ({ form, useDraft }: ApFormProps) => {
                                 <FormItem className="flex items-center gap-2 h-full">
                                   <FormControl>
                                     <Checkbox
-                                      onCheckedChange={(e) => field.onChange(e)}
+                                      onCheckedChange={(e) => {
+                                        field.onChange(e);
+                                        trackFieldInteraction(input.displayName);
+                                      }}
                                       checked={field.value as boolean}
                                     ></Checkbox>
                                   </FormControl>
@@ -248,6 +266,11 @@ const ApForm = ({ form, useDraft }: ApFormProps) => {
                                         name={input.name}
                                         id={input.name}
                                         onChange={field.onChange}
+                                        onFocus={() =>
+                                          trackFieldInteraction(
+                                            input.displayName,
+                                          )
+                                        }
                                         value={
                                           field.value as string | undefined
                                         }
@@ -257,6 +280,11 @@ const ApForm = ({ form, useDraft }: ApFormProps) => {
                                       <Input
                                         {...field}
                                         onChange={field.onChange}
+                                        onFocus={() =>
+                                          trackFieldInteraction(
+                                            input.displayName,
+                                          )
+                                        }
                                         id={input.name}
                                         name={input.name}
                                         value={
@@ -272,6 +300,9 @@ const ApForm = ({ form, useDraft }: ApFormProps) => {
                                           const file = e.target.files?.[0];
                                           if (file) {
                                             field.onChange(file);
+                                            trackFieldInteraction(
+                                              input.displayName,
+                                            );
                                           }
                                         }}
                                         placeholder={input.displayName}

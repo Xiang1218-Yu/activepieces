@@ -43,6 +43,13 @@ const RunsPage = lazyWithRetry(
   () => import('./runs').then((m) => ({ default: m.RunsPage })),
   'runs',
 );
+const FormAnalyticsPage = lazyWithRetry(
+  () =>
+    import('./form-analytics').then((m) => ({
+      default: m.FormAnalyticsPage,
+    })),
+  'form-analytics',
+);
 const FlowRunPage = lazyWithRetry(
   () => import('./runs/id').then((m) => ({ default: m.FlowRunPage })),
   'flow-run',
@@ -164,6 +171,20 @@ export const projectRoutes = [
           <PageTitle title="Runs">
             <SuspenseWrapper>
               <RunsPage />
+            </SuspenseWrapper>
+          </PageTitle>
+        </RoutePermissionGuard>
+      </ProjectDashboardLayout>
+    ),
+  }),
+  ...ProjectRouterWrapper({
+    path: '/form-analytics',
+    element: (
+      <ProjectDashboardLayout>
+        <RoutePermissionGuard requiredPermissions={Permission.READ_RUN}>
+          <PageTitle title="Form Analytics">
+            <SuspenseWrapper>
+              <FormAnalyticsPage />
             </SuspenseWrapper>
           </PageTitle>
         </RoutePermissionGuard>

@@ -76,6 +76,7 @@ import { flagModule } from './flags/flag.module'
 import { flagHooks } from './flags/flags.hooks'
 import { flowPublishHooks, publishHooksFactory } from './flows/flow/flow-publish-hooks'
 import { flowBackgroundJobs } from './flows/flow/flow.jobs'
+import { formAnalyticsModule } from './flows/form-analytics/form-analytics.module'
 import { humanInputModule } from './flows/flow/human-input/human-input.module'
 import { flowRunModule } from './flows/flow-run/flow-run-module'
 import { pieceUpgradeModule } from './flows/flow-version/piece-upgrade.module'
@@ -249,6 +250,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
     await app.register(piecesReportModule)
     await app.register(platformConfigurationModule)
     await app.register(humanInputModule)
+    await app.register(formAnalyticsModule)
     await app.register(mcpServerModule)
     await app.register(mcpOAuthApproveController)
     await app.register(mcpOAuthGrantsController)

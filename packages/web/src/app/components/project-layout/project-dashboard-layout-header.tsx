@@ -1,4 +1,5 @@
 import { isNil, Permission } from '@activepieces/core-utils';
+import { ClipboardType } from 'lucide-react';
 import { t } from 'i18next';
 import { useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -97,6 +98,13 @@ export const ProjectDashboardLayoutHeader = () => {
       to: authenticationSession.appendProjectRoutePrefix('/runs'),
       label: t('Runs'),
       icon: HistoryIcon,
+      hasPermission: checkAccess(Permission.READ_RUN),
+      show: true,
+    },
+    {
+      to: authenticationSession.appendProjectRoutePrefix('/form-analytics'),
+      label: t('Form Analytics'),
+      icon: ClipboardType,
       hasPermission: checkAccess(Permission.READ_RUN),
       show: true,
     },

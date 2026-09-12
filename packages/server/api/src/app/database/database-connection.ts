@@ -38,7 +38,8 @@ import { FileEntity } from '../file/file.entity'
 import { FlagEntity } from '../flags/flag.entity'
 import { FlowEntity } from '../flows/flow/flow.entity'
 import { FlowRunEntity } from '../flows/flow-run/flow-run-entity'
-import { FlowVersionEntity } from '../flows/flow-version/flow-version-entity'
+import { FormFieldInteractionEntity } from '../flows/form-analytics/form-field-interaction-entity'
+import { FormSessionEntity } from '../flows/form-analytics/form-analytics-session-entity'import { FlowVersionEntity } from '../flows/flow-version/flow-version-entity'
 import { FolderEntity } from '../flows/folder/folder.entity'
 import { system } from '../helper/system/system'
 import { AppSystemProp } from '../helper/system/system-props'
@@ -83,6 +84,8 @@ function getEntities(): EntitySchema<unknown>[] {
         FlowEntity,
         FlowVersionEntity,
         FlowRunEntity,
+        FormSessionEntity,
+        FormFieldInteractionEntity,
         ProjectEntity,
         StoreEntryEntity,
         UserEntity,

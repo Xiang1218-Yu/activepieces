@@ -4,6 +4,7 @@ import { EngineHttpResponse, EventPayload, ExecutionType, Flow, FlowRun, FlowSta
 import { FastifyBaseLogger } from 'fastify'
 import { StatusCodes } from 'http-status-codes'
 import { flowExecutionCache } from '../flows/flow/flow-execution-cache'
+import { formAnalyticsService } from '../flows/form-analytics/form-analytics.service'
 import { flowRunService } from '../flows/flow-run/flow-run-service'
 import { flowVersionRepo } from '../flows/flow-version/flow-version.service'
 import { pinoLogging } from '../helper/logger'
@@ -55,6 +56,7 @@ export const webhookService = {
         parentRunId,
         failParentOnFailure,
         timeoutMs,
+        formSessionId,
     }: HandleWebhookParams): Promise<EngineHttpResponse> {
         const webhookHeader = 'x-webhook-id'
         const webhookRequestId = apId()
@@ -193,6 +195,7 @@ export const webhookService = {
             parentRunId,
             failParentOnFailure,
             timeoutMs,
+            formSessionId,
         })
         return {
             status: flowHttpResponse.status,
@@ -244,7 +247,7 @@ async function handleAsync(params: AsyncWebhookParams): Promise<EngineHttpRespon
 }
 
 async function handleSync(params: SyncWebhookParams): Promise<EngineHttpResponse> {
-    const { payload, projectId, flow, logger, webhookRequestId, workerHandlerId, flowVersionIdToRun, runEnvironment, saveSampleData, flowVersionToRun, parentRunId, failParentOnFailure, platformId, timeoutMs } = params
+    const { payload, projectId, flow, logger, webhookRequestId, workerHandlerId, flowVersionIdToRun, runEnvironment, saveSampleData, flowVersionToRun, parentRunId, failParentOnFailure, platformId, timeoutMs, formSessionId } = params
 
     if (saveSampleData) {
         rejectedPromiseHandler(savePayload({
@@ -316,6 +319,14 @@ async function handleSync(params: SyncWebhookParams): Promise<EngineHttpResponse
     wideEvent.set({ flowRun: { id: createdRun.id } })
     params.onRunCreated?.(createdRun)
 
+    if (!isNil(formSessionId) && runEnvironment === RunEnvironment.PRODUCTION) {
+        rejectedPromiseHandler(formAnalyticsService(logger).linkRunToSession({
+            sessionId: formSessionId,
+            flowId: flow.id,
+            runId: createdRun.id,
+        }), logger)
+    }
+
     const listenerResult = await engineResponseWatcher(logger).oneTimeListener<EngineHttpResponse>(webhookRequestId, true, timeoutMs ?? WEBHOOK_TIMEOUT_MS, {
         status: StatusCodes.REQUEST_TIMEOUT,
         body: {},
@@ -356,6 +367,7 @@ type HandleWebhookParams = {
     parentRunId?: string
     failParentOnFailure: boolean
     timeoutMs?: number
+    formSessionId?: string
 }
 
 type AsyncWebhookParams = {
@@ -389,4 +401,5 @@ type SyncWebhookParams = {
     parentRunId?: string
     failParentOnFailure: boolean
     timeoutMs?: number
+    formSessionId?: string
 }

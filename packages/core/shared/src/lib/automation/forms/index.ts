@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+export * from './form-analytics'
+
 const FileResponseInterfaceV1 = z.object({
     base64Url: z.string(),
     fileName: z.string(),
