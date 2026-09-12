@@ -469,6 +469,7 @@ export const createMockConnection = (connection: Partial<AppConnection>, ownerId
         owner: null,
         pieceVersion: connection?.pieceVersion ?? '0.0.0',
         preSelectForNewProjects: connection?.preSelectForNewProjects ?? false,
+        lastValidatedAt: connection?.lastValidatedAt ?? null,
     }
 }
 

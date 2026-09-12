@@ -17,7 +17,7 @@ import {
   Puzzle,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { NewConnectionDialog } from '@/app/connections/new-connection-dialog';
 import { ReconnectButtonDialog } from '@/app/connections/reconnect-button-dialog';
@@ -39,6 +39,7 @@ import { DeleteConnectionWarning } from '@/components/custom/global-connection-u
 import { PermissionNeededTooltip } from '@/components/custom/permission-needed-tooltip';
 import { StatusIconWithText } from '@/components/custom/status-icon-with-text';
 import { TextWithTooltip } from '@/components/custom/text-with-tooltip';
+import { FileHeartIcon } from '@/components/icons/file-heart';
 import { PlusIcon } from '@/components/icons/plus';
 import { ReplaceIcon } from '@/components/icons/replace';
 import { Button } from '@/components/ui/button';
@@ -393,6 +394,20 @@ function AppConnectionsPage() {
 
   const toolbarButtons = useMemo(
     () => [
+      <Link
+        key="health-center"
+        to={authenticationSession.appendProjectRoutePrefix(
+          '/connections/health',
+        )}
+      >
+        <AnimatedIconButton
+          icon={FileHeartIcon}
+          iconSize={16}
+          variant="outline"
+        >
+          {t('Health Center')}
+        </AnimatedIconButton>
+      </Link>,
       <PermissionNeededTooltip
         key="replace"
         hasPermission={userHasPermissionToWriteAppConnection}

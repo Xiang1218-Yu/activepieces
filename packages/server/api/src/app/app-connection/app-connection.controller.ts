@@ -1,6 +1,6 @@
 import { ApId, Permission, SeekPage } from '@activepieces/core-utils'
 import { wideEvent } from '@activepieces/server-utils'
-import { ActivepiecesError, AppConnectionOwners, AppConnectionScope, AppConnectionStatus, AppConnectionType, AppConnectionWithoutSensitiveData, ApplicationEventName, ErrorCode, GetOAuth2AuthorizationUrlRequestBody, GetOAuth2AuthorizationUrlResponse, ListAppConnectionOwnersRequestQuery, ListAppConnectionsRequestQuery, PLACEHOLDER_CONNECTION_TYPE, PrincipalType, ReplaceAppConnectionsRequestBody, SERVICE_KEY_SECURITY_OPENAPI, UpdateConnectionValueRequestBody, UpsertAppConnectionRequestBody } from '@activepieces/shared'
+import { ActivepiecesError, AppConnectionOwners, AppConnectionScope, AppConnectionStatus, AppConnectionType, AppConnectionWithoutSensitiveData, ApplicationEventName, ConnectionHealthItem, ErrorCode, GetOAuth2AuthorizationUrlRequestBody, GetOAuth2AuthorizationUrlResponse, ListAppConnectionOwnersRequestQuery, ListAppConnectionsRequestQuery, ListConnectionHealthRequestQuery, PLACEHOLDER_CONNECTION_TYPE, PrincipalType, ReplaceAppConnectionsRequestBody, SERVICE_KEY_SECURITY_OPENAPI, UpdateConnectionValueRequestBody, UpsertAppConnectionRequestBody } from '@activepieces/shared'
 import { FastifyPluginCallbackZod } from 'fastify-type-provider-zod'
 import { StatusCodes } from 'http-status-codes'
 import { z } from 'zod'
@@ -124,6 +124,30 @@ export const appConnectionController: FastifyPluginCallbackZod = (app, _opts, do
         }
     },
     )
+
+    app.get('/health', ListConnectionHealthRequest, async (request): Promise<SeekPage<ConnectionHealthItem>> => {
+        const { pieceName, displayName, status, projectIds, cursor, limit } = request.query
+        const health = await appConnectionService(request.log).listHealth({
+            pieceName,
+            displayName,
+            status,
+            projectIds,
+            platformId: request.principal.platform.id,
+            projectId: request.projectId,
+            cursorRequest: cursor ?? null,
+            limit: limit ?? DEFAULT_PAGE_SIZE,
+        })
+        wideEvent.audit(auditEvents.connectionListed({
+            actor: auditEvents.actorFromPrincipal(request.principal),
+            target: {
+                type: 'project',
+                id: request.projectId,
+                platformId: request.principal.platform.id,
+                connectionCount: health.data.length,
+            },
+        }))
+        return health
+    })
 
     app.post('/replace', ReplaceAppConnectionsRequest, async (request, reply) => {
         const { sourceAppConnectionId, targetAppConnectionId, deleteSourceConnection, applyToPublishedVersions } = request.body
@@ -334,6 +358,27 @@ const ListAppConnectionOwnersRequest = {
         description: 'List app connection owners',
         response: {
             [StatusCodes.OK]: SeekPage(AppConnectionOwners),
+        },
+    },
+}
+
+const ListConnectionHealthRequest = {
+    config: {
+        security: securityAccess.project(
+            [PrincipalType.USER, PrincipalType.SERVICE],
+            Permission.READ_APP_CONNECTION,
+            {
+                type: ProjectResourceType.QUERY,
+            },
+        ),
+    },
+    schema: {
+        tags: ['app-connections'],
+        security: [SERVICE_KEY_SECURITY_OPENAPI],
+        querystring: ListConnectionHealthRequestQuery,
+        description: 'List project and global connections with their health status',
+        response: {
+            [StatusCodes.OK]: SeekPage(ConnectionHealthItem),
         },
     },
 }

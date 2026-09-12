@@ -51,6 +51,12 @@ export const STATIC_PAGES: StaticPage[] = [
     icon: ChartLineIcon,
   },
   {
+    id: 'page-connection-health',
+    label: 'Connection Health',
+    href: '/connections/health',
+    icon: FileHeartIcon,
+  },
+  {
     id: 'page-mcp',
     label: 'MCP',
     href: '/mcp-server',

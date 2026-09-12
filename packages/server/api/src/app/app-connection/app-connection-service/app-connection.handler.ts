@@ -235,8 +235,14 @@ export const appConnectionHandler = (log: FastifyBaseLogger) => ({
                         throw e
                     }
                     appConnection.status = AppConnectionStatus.ERROR
+                    appConnection.lastValidatedAt = dayjs().toISOString()
+                    // Persist only the status and the validation timestamp — never
+                    // the value. The stored credentials (refresh token, secrets)
+                    // are what a later reconnect recovers from, and a failed
+                    // validation must not clobber them.
                     await appConnectionsRepo().update(appConnection.id, {
                         status: AppConnectionStatus.ERROR,
+                        lastValidatedAt: appConnection.lastValidatedAt,
                         updated: dayjs().toISOString(),
                     })
                     return appConnection
@@ -246,8 +252,13 @@ export const appConnectionHandler = (log: FastifyBaseLogger) => ({
                     throw error
                 }
                 appConnection.status = isNil(error) ? AppConnectionStatus.ACTIVE : AppConnectionStatus.ERROR
+                appConnection.lastValidatedAt = dayjs().toISOString()
+                // Same guarantee as the refresh-failure path above: a failed
+                // validation updates status/lastValidatedAt only, leaving the
+                // stored value untouched.
                 await appConnectionsRepo().update(appConnection.id, {
                     status: appConnection.status,
+                    lastValidatedAt: appConnection.lastValidatedAt,
                     updated: dayjs().toISOString(),
                 })
                 return appConnection

@@ -35,6 +35,19 @@ For example, if an employee leaves the company, an admin can use the **Owner** f
 
 Regularly reviewing connections can also help identify outdated ones 
 
+### **Connection Health Center**
+
+Instead of waiting for users to report that "a connection suddenly stopped working", admins can open the **Health Center** from the Connections page in any project. It aggregates the health of the project's connections and the global connections shared with it in one table.
+
+For each connection, the Health Center shows:
+
+- Its current status
+- When it was **last validated**
+- How many **flows** reference it
+- A **suggested action**: reconnect an expired or broken OAuth connection, complete the setup of a placeholder connection, or review a connection whose piece has a newer version
+
+You can filter the list by **piece, status, and project**, recheck a connection on demand, or start a re-authorization — which uses the same OAuth and managed auth flow as creating the connection. A failed validation never overwrites the stored credentials, so a connection can always be recovered by reconnecting it.
+
 ### **Navigating Connections Via API**
 
 Refer to [<u>API reference</u>](https://www.activepieces.com/docs/endpoints/connections/schema)

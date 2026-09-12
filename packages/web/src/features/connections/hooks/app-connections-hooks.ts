@@ -13,6 +13,7 @@ import {
   AppConnectionStatus,
   AppConnectionWithoutSensitiveData,
   ListAppConnectionsRequestQuery,
+  ListConnectionHealthRequestQuery,
   PLACEHOLDER_CONNECTION_TYPE,
   ReplaceAppConnectionsRequestBody,
   UpsertAppConnectionRequestBody,
@@ -121,6 +122,9 @@ export const appConnectionsMutations = {
         // Refreshing only the caller's own query left other readers stale enough to describe a
         // brand-new account as deleted.
         void queryClient.invalidateQueries({ queryKey: ['app-connections'] });
+        void queryClient.invalidateQueries({
+          queryKey: ['app-connections-health'],
+        });
         setOpen(false, connection);
         setErrorMessage('');
       },
@@ -278,6 +282,9 @@ export const appConnectionsMutations = {
               ),
             },
         );
+        void queryClient.invalidateQueries({
+          queryKey: ['app-connections-health'],
+        });
         if (connection.status === AppConnectionStatus.ACTIVE) {
           toast.success(t('Success'), {
             description: t('Connection is working.'),
@@ -374,6 +381,21 @@ export const appConnectionsQueries = {
       },
       enabled,
       staleTime,
+    });
+  },
+
+  useConnectionHealth: ({
+    request,
+    extraKeys,
+  }: {
+    request: ListConnectionHealthRequestQuery;
+    extraKeys: any[];
+  }) => {
+    return useQuery({
+      queryKey: ['app-connections-health', ...extraKeys],
+      queryFn: () => appConnectionsApi.getHealth(request),
+      staleTime: 0,
+      gcTime: 0,
     });
   },
 

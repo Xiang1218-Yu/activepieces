@@ -62,6 +62,7 @@ const customAuthConnection = ({ platformId, pieceName, pieceVersion, value }: { 
     externalId: apId(),
     owner: null,
     preSelectForNewProjects: false,
+    lastValidatedAt: null,
 })
 
 describe('Custom auth token refresh — needRefresh', () => {

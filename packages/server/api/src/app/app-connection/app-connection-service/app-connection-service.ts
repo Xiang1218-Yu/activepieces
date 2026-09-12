@@ -1,6 +1,7 @@
 import { ActivepiecesError, apId, Cursor, ErrorCode, isNil, Metadata, PlatformId, ProjectId, SeekPage, spreadIfDefined, tryCatch, tryCatchSync, unique, UserId } from '@activepieces/core-utils'
 import { PieceMetadata } from '@activepieces/pieces-framework'
-import { ApEdition, ApEnvironment, AppConnection, AppConnectionId, AppConnectionOwners, AppConnectionScope, AppConnectionStatus, AppConnectionType, AppConnectionValue, AppConnectionWithoutSensitiveData, ConnectionState, EngineResponse, EngineResponseStatus, ExecuteResolveConnectionIdentifierResponse, ExecuteValidateAuthResponse, MAX_PLATFORM_APP_CONNECTION_OWNERS, OAuth2GrantType, PlatformAppConnectionOwner, PlatformAppConnectionOwnersResponse, PlatformAppConnectionProjectInfo, PlatformAppConnectionsListItem, PlatformRole, UpsertAppConnectionRequestBody, WorkerJobType } from '@activepieces/shared'
+import { ApEdition, ApEnvironment, AppConnection, AppConnectionId, AppConnectionOwners, AppConnectionScope, AppConnectionStatus, AppConnectionType, AppConnectionValue, AppConnectionWithoutSensitiveData, ConnectionHealthItem, ConnectionHealthSuggestedAction, ConnectionState, EngineResponse, EngineResponseStatus, ExecuteResolveConnectionIdentifierResponse, ExecuteValidateAuthResponse, MAX_PLATFORM_APP_CONNECTION_OWNERS, OAuth2GrantType, PlatformAppConnectionOwner, PlatformAppConnectionOwnersResponse, PlatformAppConnectionProjectInfo, PlatformAppConnectionsListItem, PlatformRole, UpsertAppConnectionRequestBody, WorkerJobType } from '@activepieces/shared'
+import dayjs from 'dayjs'
 import { FastifyBaseLogger } from 'fastify'
 import semver from 'semver'
 import { ArrayContains, Equal, FindOperator, FindOptionsWhere, ILike, In } from 'typeorm'
@@ -104,6 +105,9 @@ export const appConnectionService = (log: FastifyBaseLogger) => ({
             ...spreadIfDefined('metadata', connectionMetadata),
             ...spreadIfDefined('preSelectForNewProjects', preSelectForNewProjects),
             pieceVersion,
+            // The value was just validated above — placeholders (MISSING) carry no
+            // credentials yet, so they have never been validated.
+            lastValidatedAt: status === AppConnectionStatus.MISSING ? null : dayjs().toISOString(),
         }
 
         await appConnectionsRepo().upsert(connection, ['id'])
@@ -493,6 +497,42 @@ export const appConnectionService = (log: FastifyBaseLogger) => ({
         }
     },
 
+    async listHealth(params: ListHealthParams): Promise<SeekPage<ConnectionHealthItem>> {
+        const page = await this.list({
+            pieceName: params.pieceName,
+            displayName: params.displayName,
+            status: params.status,
+            scope: undefined,
+            platformId: params.platformId,
+            projectId: params.projectId,
+            projectIds: params.projectIds,
+            cursorRequest: params.cursorRequest,
+            limit: params.limit,
+            externalIds: undefined,
+        })
+
+        const latestVersionByPiece = await fetchLatestPieceVersions({
+            log,
+            pieceNames: page.data.map((connection) => connection.pieceName),
+            platformId: params.platformId,
+        })
+
+        const data: ConnectionHealthItem[] = page.data.map((connection) => {
+            const sanitized = this.removeSensitiveData(connection)
+            return {
+                ...sanitized,
+                flowCount: sanitized.flowIds?.length ?? 0,
+                suggestedAction: deriveConnectionHealthAction({
+                    status: connection.status,
+                    pieceVersion: connection.pieceVersion,
+                    latestPieceVersion: latestVersionByPiece.get(connection.pieceName),
+                }),
+            }
+        })
+
+        return { ...page, data }
+    },
+
     async decryptAndRefreshConnection(
         encryptedAppConnection: AppConnectionSchema,
         projectId: ProjectId,
@@ -602,6 +642,37 @@ const fetchProjectsForPlatform = async (projectIds: string[], platformId: string
         select: ['id', 'displayName', 'type'],
     })
     return new Map(projects.map((project) => [project.id, { id: project.id, displayName: project.displayName, type: project.type }]))
+}
+
+// Best-effort latest-version lookup per piece: a piece that was uninstalled or
+// fails to load must not break the health list, so failures collapse to no
+// version (and no UPDATE_PIECE_VERSION suggestion) for that piece.
+const fetchLatestPieceVersions = async ({ log, pieceNames, platformId }: FetchLatestPieceVersionsParams): Promise<Map<string, string>> => {
+    const latestVersionByPiece = new Map<string, string>()
+    await Promise.all(unique(pieceNames).map(async (pieceName) => {
+        const { data: piece } = await tryCatch(() => pieceMetadataService(log).getOrThrow({
+            name: pieceName,
+            version: undefined,
+            platformId,
+        }))
+        if (!isNil(piece)) {
+            latestVersionByPiece.set(pieceName, piece.version)
+        }
+    }))
+    return latestVersionByPiece
+}
+
+const deriveConnectionHealthAction = ({ status, pieceVersion, latestPieceVersion }: DeriveConnectionHealthActionParams): ConnectionHealthSuggestedAction => {
+    if (status === AppConnectionStatus.MISSING) {
+        return ConnectionHealthSuggestedAction.COMPLETE_SETUP
+    }
+    if (status === AppConnectionStatus.ERROR) {
+        return ConnectionHealthSuggestedAction.RECONNECT
+    }
+    if (!isNil(latestPieceVersion) && !isNil(semver.valid(pieceVersion)) && semver.lt(pieceVersion, latestPieceVersion)) {
+        return ConnectionHealthSuggestedAction.UPDATE_PIECE_VERSION
+    }
+    return ConnectionHealthSuggestedAction.NONE
 }
 
 async function assertProjectIds(projectIds: ProjectId[], platformId: string): Promise<void> {
@@ -1024,6 +1095,29 @@ type ListForPlatformParams = {
     ownerIds: string[] | undefined
     cursorRequest: Cursor | null
     limit: number
+}
+
+type ListHealthParams = {
+    platformId: string
+    projectId: ProjectId
+    pieceName: string | undefined
+    displayName: string | undefined
+    status: AppConnectionStatus[] | undefined
+    projectIds: ProjectId[] | undefined
+    cursorRequest: Cursor | null
+    limit: number
+}
+
+type DeriveConnectionHealthActionParams = {
+    status: AppConnectionStatus
+    pieceVersion: string
+    latestPieceVersion: string | undefined
+}
+
+type FetchLatestPieceVersionsParams = {
+    log: FastifyBaseLogger
+    pieceNames: string[]
+    platformId: string
 }
 
 type UpdateParams = {

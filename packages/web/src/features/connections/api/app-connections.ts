@@ -2,10 +2,12 @@ import { SeekPage } from '@activepieces/core-utils';
 import {
   AppConnectionOwners,
   AppConnectionWithoutSensitiveData,
+  ConnectionHealthItem,
   GetOAuth2AuthorizationUrlRequestBody,
   GetOAuth2AuthorizationUrlResponse,
   ListAppConnectionOwnersRequestQuery,
   ListAppConnectionsRequestQuery,
+  ListConnectionHealthRequestQuery,
   ReplaceAppConnectionsRequestBody,
   UpdateConnectionValueRequestBody,
   UpsertAppConnectionRequestBody,
@@ -20,6 +22,14 @@ export const appConnectionsApi = {
   ): Promise<SeekPage<AppConnectionWithoutSensitiveData>> {
     return api.get<SeekPage<AppConnectionWithoutSensitiveData>>(
       '/v1/app-connections',
+      request,
+    );
+  },
+  getHealth(
+    request: ListConnectionHealthRequestQuery,
+  ): Promise<SeekPage<ConnectionHealthItem>> {
+    return api.get<SeekPage<ConnectionHealthItem>>(
+      '/v1/app-connections/health',
       request,
     );
   },

@@ -66,6 +66,10 @@ export const AppConnectionEntity = new EntitySchema<AppConnectionSchema>({
             nullable: false,
             default: false,
         },
+        lastValidatedAt: {
+            type: 'timestamp with time zone',
+            nullable: true,
+        },
     },
     indices: [
         {

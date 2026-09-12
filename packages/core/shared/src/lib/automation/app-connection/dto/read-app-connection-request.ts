@@ -1,7 +1,7 @@
 import { OptionalArrayFromQuery } from '@activepieces/core-utils'
 import { z } from 'zod'
 import { ProjectType } from '../../../management/project/project'
-import { AppConnectionScope, AppConnectionStatus, AppConnectionWithoutSensitiveData } from '../app-connection'
+import { AppConnectionScope, AppConnectionStatus, AppConnectionWithoutSensitiveData, ConnectionHealthSuggestedAction } from '../app-connection'
 
 export const ListAppConnectionsRequestQuery = z.object({
     cursor: z.string().optional(),
@@ -31,6 +31,23 @@ export const ListAppConnectionOwnersRequestQuery = z.object({
     projectId: z.string(),
 })
 export type ListAppConnectionOwnersRequestQuery = z.infer<typeof ListAppConnectionOwnersRequestQuery>
+
+export const ListConnectionHealthRequestQuery = z.object({
+    cursor: z.string().optional(),
+    projectId: z.string(),
+    pieceName: z.string().optional(),
+    displayName: z.string().optional(),
+    status: OptionalArrayFromQuery(z.enum(AppConnectionStatus)),
+    projectIds: OptionalArrayFromQuery(z.string()),
+    limit: z.coerce.number().optional(),
+})
+export type ListConnectionHealthRequestQuery = z.infer<typeof ListConnectionHealthRequestQuery>
+
+export const ConnectionHealthItem = AppConnectionWithoutSensitiveData.extend({
+    flowCount: z.number(),
+    suggestedAction: z.enum(ConnectionHealthSuggestedAction),
+})
+export type ConnectionHealthItem = z.infer<typeof ConnectionHealthItem>
 
 export const ListPlatformAppConnectionsRequestQuery = z.object({
     cursor: z.string().optional(),
