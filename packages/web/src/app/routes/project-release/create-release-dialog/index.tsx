@@ -1,6 +1,7 @@
 import {
   ConnectionOperationType,
   DiffReleaseRequest,
+  FolderOperationType,
   ProjectReleaseType,
   ProjectSyncPlan,
   TableOperationType,
@@ -67,7 +68,9 @@ const CreateReleaseDialogContent = ({
 }: CreateReleaseDialogContentProps) => {
   const isThereAnyChanges =
     (plan?.flows && plan?.flows.length > 0) ||
-    (plan?.tables && plan?.tables.length > 0);
+    (plan?.tables && plan?.tables.length > 0) ||
+    (plan?.connections && plan?.connections.length > 0) ||
+    (plan?.folders && plan?.folders.length > 0);
 
   const { mutate: applyChanges, isPending } =
     projectReleaseMutations.useApplyRelease({
@@ -265,6 +268,48 @@ const CreateReleaseDialogContent = ({
               </div>
             </div>
           )}
+          {plan?.folders && plan?.folders.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-col justify-center gap-1 py-2 border-b">
+                  <Label className="text-sm font-medium">
+                    {t('Folders Changes')} ({plan?.folders?.length || 0})
+                  </Label>
+                </div>
+                <ScrollArea viewPortClassName="max-h-[10vh]">
+                  {plan?.folders.map((folder) => (
+                    <div
+                      key={folder.folderState.externalId}
+                      className="flex items-center gap-2 text-sm py-1"
+                    >
+                      {folder.type === FolderOperationType.UPDATE_FOLDER && (
+                        <div className="flex items-center gap-2">
+                          <PencilIcon className="w-4 h-4 shrink-0" />
+                          <span>{folder.newFolderState.displayName}</span>
+                        </div>
+                      )}
+                      {folder.type === FolderOperationType.CREATE_FOLDER && (
+                        <div className="flex items-center gap-2">
+                          <Plus className="w-4 h-4 shrink-0 text-success" />
+                          <span className="text-success">
+                            {folder.folderState.displayName}
+                          </span>
+                        </div>
+                      )}
+                      {folder.type === FolderOperationType.DELETE_FOLDER && (
+                        <div className="flex items-center gap-2">
+                          <TrashIcon className="w-4 h-4 shrink-0 text-destructive" />
+                          <span className="text-destructive">
+                            {folder.folderState.displayName}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </ScrollArea>
+              </div>
+            </div>
+          )}
           {errorMessage && (
             <p className="text-sm text-destructive">{errorMessage}</p>
           )}
@@ -295,7 +340,12 @@ const CreateReleaseDialogContent = ({
                 form.setError('name', { message: 'Release name is required' });
                 error = true;
               }
-              if (selectedChanges.size === 0 && plan.tables.length === 0) {
+              if (
+                selectedChanges.size === 0 &&
+                plan.tables.length === 0 &&
+                (plan.connections?.length ?? 0) === 0 &&
+                (plan.folders?.length ?? 0) === 0
+              ) {
                 setErrorMessage(
                   'Please select at least one change to include in the release',
                 );
@@ -318,6 +368,10 @@ const CreateReleaseDialogContent = ({
                   applyChanges({
                     ...baseRequest,
                     targetProjectId: diffRequest.targetProjectId,
+                    snapshotToken:
+                      'snapshotToken' in diffRequest
+                        ? diffRequest.snapshotToken ?? null
+                        : null,
                     type: diffRequest.type,
                   });
                   break;

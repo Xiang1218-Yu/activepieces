@@ -35,6 +35,13 @@ const ProjectReleasesPage = lazyWithRetry(
     })),
   'project-releases',
 );
+const ProjectMigrationPrecheckPage = lazyWithRetry(
+  () =>
+    import('./project-migration').then((m) => ({
+      default: m.ProjectMigrationPrecheckPage,
+    })),
+  'project-migration-precheck',
+);
 const ViewRelease = lazyWithRetry(
   () => import('./project-release/view-release'),
   'view-release',
@@ -243,6 +250,22 @@ export const projectRoutes = [
             <ProjectReleasesPage />
           </SuspenseWrapper>
         </PageTitle>
+      </ProjectDashboardLayout>
+    ),
+  }),
+  ...ProjectRouterWrapper({
+    path: routesThatRequireProjectId.migrationPrecheck,
+    element: (
+      <ProjectDashboardLayout>
+        <RoutePermissionGuard
+          requiredPermissions={Permission.READ_PROJECT_RELEASE}
+        >
+          <PageTitle title="Migration Precheck">
+            <SuspenseWrapper>
+              <ProjectMigrationPrecheckPage />
+            </SuspenseWrapper>
+          </PageTitle>
+        </RoutePermissionGuard>
       </ProjectDashboardLayout>
     ),
   }),

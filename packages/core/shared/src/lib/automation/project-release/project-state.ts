@@ -58,6 +58,7 @@ export const TableState = z.object({
 export type TableState = z.infer<typeof TableState>
 
 export const FolderState = z.object({
+    id: z.string(),
     externalId: z.string(),
     displayName: z.string(),
     displayOrder: z.number(),
@@ -141,6 +142,7 @@ export const DiffState = z.object({
     flows: z.array(ProjectOperation),
     connections: z.array(ConnectionOperation),
     tables: z.array(TableOperation),
+    folders: z.array(FolderOperation),
 })
 export type DiffState = z.infer<typeof DiffState>
 
@@ -184,6 +186,7 @@ export const ProjectSyncPlan = z.object({
     flows: z.array(FlowProjectOperation),
     connections: z.array(ConnectionOperation),
     tables: z.array(TableOperation),
+    folders: z.array(FolderOperation),
     errors: z.array(FlowSyncError),
 })
 export type ProjectSyncPlan = z.infer<typeof ProjectSyncPlan>

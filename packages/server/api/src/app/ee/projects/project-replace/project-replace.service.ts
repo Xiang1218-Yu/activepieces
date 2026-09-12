@@ -357,6 +357,7 @@ async function loadCurrentFolderStates({ projectId, log }: LoadCurrentFolderStat
     return folders
         .filter((folder) => !isNil(folder.externalId))
         .map((folder) => ({
+            id: folder.id,
             externalId: folder.externalId as string,
             displayName: folder.displayName,
             displayOrder: folder.displayOrder,

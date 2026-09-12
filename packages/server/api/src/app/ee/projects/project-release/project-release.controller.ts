@@ -1,5 +1,5 @@
 import { ApId, SeekPage } from '@activepieces/core-utils'
-import { ApplicationEventName, CreateProjectReleaseRequestBody, DiffReleaseRequest, ListProjectReleasesRequest, PrincipalType, ProjectRelease, SERVICE_KEY_SECURITY_OPENAPI } from '@activepieces/shared'
+import { ApplicationEventName, CreateProjectReleaseRequestBody, DiffReleaseRequest, ListProjectReleasesRequest, PrincipalType, ProjectMigrationPrecheckReport, ProjectMigrationPrecheckRequest, ProjectRelease, SERVICE_KEY_SECURITY_OPENAPI } from '@activepieces/shared'
 import { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { StatusCodes } from 'http-status-codes'
 import { z } from 'zod'
@@ -7,6 +7,7 @@ import { ProjectResourceType } from '../../../core/security/authorization/common
 import { securityAccess } from '../../../core/security/authorization/fastify-security'
 import { applicationEvents } from '../../../helper/application-events'
 import { platformService } from '../../../platform/platform.service'
+import { projectMigrationService } from './project-migration/project-migration.service'
 import { ProjectReleaseEntity } from './project-release.entity'
 import { projectReleaseService } from './project-release.service'
 
@@ -59,6 +60,13 @@ export const projectReleaseController: FastifyPluginAsyncZod = async (app) => {
             log: req.log,
         })
     })
+
+    app.post('/migration-precheck', MigrationPrecheckRequest, async (req) => {
+        return projectMigrationService(req.log).precheck({
+            params: { ...req.body, projectId: req.projectId },
+            platformId: req.principal.platform.id,
+        })
+    })
 }
 
 const GetProjectReleaseRequest = {
@@ -109,6 +117,25 @@ const DiffProjectReleaseRequest = {
     },
     schema: {
         body: DiffReleaseRequest,
+    },
+}
+
+const MigrationPrecheckRequest = {
+    config: {
+        security: securityAccess.project(
+            [PrincipalType.USER],
+            undefined,
+            {
+                type: ProjectResourceType.BODY,
+            },
+        ),
+    },
+    schema: {
+        tags: ['project-releases'],
+        body: ProjectMigrationPrecheckRequest,
+        response: {
+            [StatusCodes.OK]: ProjectMigrationPrecheckReport,
+        },
     },
 }
 

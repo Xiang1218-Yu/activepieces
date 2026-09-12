@@ -33,14 +33,12 @@ export const folderDiffService = {
 
 function toFingerprint(folder: FolderState): FolderFingerprint {
     return {
-        externalId: folder.externalId,
         displayName: folder.displayName,
         displayOrder: folder.displayOrder,
     }
 }
 
 type FolderFingerprint = {
-    externalId: string
     displayName: string
     displayOrder: number
 }

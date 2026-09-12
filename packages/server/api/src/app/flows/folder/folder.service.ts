@@ -78,6 +78,17 @@ export const flowFolderService = (log: FastifyBaseLogger) => ({
             })
             return folderRepo().findOneByOrFail({ id: existing.id, projectId })
         }
+        const existingWithSameName = await this.getOneByDisplayNameCaseInsensitive({
+            projectId,
+            displayName,
+        })
+        if (!isNil(existingWithSameName)) {
+            await folderRepo().update(existingWithSameName.id, {
+                externalId,
+                displayOrder,
+            })
+            return folderRepo().findOneByOrFail({ id: existingWithSameName.id, projectId })
+        }
         const folderId = apId()
         await folderRepo().insert({
             id: folderId,

@@ -30,6 +30,7 @@ export const CreateProjectReleaseFromProjectRequestBody = z.object({
     type: z.literal(ProjectReleaseType.PROJECT),
     ...BaseProjectReleaseRequestBody,
     targetProjectId: z.string(),
+    snapshotToken: Nullable(z.string()),
 })
 
 export const CreateProjectReleaseRequestBody = z.discriminatedUnion('type', [
@@ -46,6 +47,7 @@ export const DiffReleaseRequest = z.union([
         projectId: z.string(),
         type: z.literal(ProjectReleaseType.PROJECT),
         targetProjectId: z.string(),
+        snapshotToken: z.string().optional(),
     }),
     z.object({
         projectId: z.string(),

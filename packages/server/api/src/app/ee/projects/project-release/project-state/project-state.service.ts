@@ -1,11 +1,13 @@
 import { isNil, ProjectId } from '@activepieces/core-utils'
-import { AppConnectionScope, AppConnectionStatus, AppConnectionType, ConnectionOperationType, ConnectionState, DiffState, FieldState, FieldType, FileCompression, FileId, FileType, FlowOperationStatus, FlowProjectOperationType, FlowState, FlowStatus, FlowSyncError, PopulatedFlow, PopulatedTable, ProjectState, TableOperationType, TableState } from '@activepieces/shared'
+import { AppConnectionScope, AppConnectionStatus, AppConnectionType, ConnectionOperationType, ConnectionState, DiffState, FieldState, FieldType, FileCompression, FileId, FileType, FlowOperationStatus, FlowOperationType, FlowProjectOperationType, FlowState, FlowStatus, FlowSyncError, FolderOperationType, FolderState, PopulatedFlow, PopulatedTable, ProjectState, Table, TableOperationType, TableState } from '@activepieces/shared'
 import { FastifyBaseLogger } from 'fastify'
 import { appConnectionService } from '../../../../app-connection/app-connection-service/app-connection-service'
 import { fileService } from '../../../../file/file.service'
 import { flowRepo } from '../../../../flows/flow/flow.repo'
+import { flowService } from '../../../../flows/flow/flow.service'
 import { flowVersionService } from '../../../../flows/flow-version/flow-version.service'
 import { flowMigrations } from '../../../../flows/flow-version/migrations'
+import { flowFolderService } from '../../../../flows/folder/folder.service'
 import { fieldService } from '../../../../tables/field/field.service'
 import { tableService } from '../../../../tables/table/table.service'
 import { triggerSourceService } from '../../../../trigger/trigger-source/trigger-source-service'
@@ -13,8 +15,12 @@ import { cleanFlowStateUtil } from './clean-flow-state'
 import { projectStateHelper } from './project-state-helper'
 
 export const projectStateService = (log: FastifyBaseLogger) => ({
-    async apply({ projectId, diffs, platformId }: ApplyProjectStateRequest): Promise<void> {
+    async apply({ projectId, diffs, platformId, sourceFolders = [] }: ApplyProjectStateRequest): Promise<void> {
         const { flows, connections, tables } = diffs
+        const folders = diffs.folders ?? []
+        const folderIdMap = folders.length > 0
+            ? await this.applyFolders({ projectId, folders })
+            : new Map<string, string>()
         const publishJobs: Promise<FlowSyncError | null>[] = []
         for (const state of connections) {
             switch (state.type) {
@@ -134,12 +140,28 @@ export const projectStateService = (log: FastifyBaseLogger) => ({
             switch (operation.type) {
                 case FlowProjectOperationType.UPDATE_FLOW: {
                     const flowUpdated = await projectStateHelper(log).updateFlowInProject(operation.flowState, operation.newFlowState, projectId)
+                    await this.assignFolderFromState({
+                        flowState: operation.newFlowState,
+                        targetFlowId: flowUpdated.id,
+                        projectId,
+                        platformId,
+                        folderIdMap,
+                        sourceFolders,
+                    })
                     const keepOriginalState = projectStateHelper(log).republishFlow({ flow: flowUpdated, projectId, status: operation.flowState.status })
                     publishJobs.push(keepOriginalState)
                     break
                 }
                 case FlowProjectOperationType.CREATE_FLOW: {
                     const flowCreated = await projectStateHelper(log).createFlowInProject(operation.flowState, projectId)
+                    await this.assignFolderFromState({
+                        flowState: operation.flowState,
+                        targetFlowId: flowCreated.id,
+                        projectId,
+                        platformId,
+                        folderIdMap,
+                        sourceFolders,
+                    })
                     const alwaysEnableNewFlow = projectStateHelper(log).republishFlow({ flow: flowCreated, projectId, status: FlowStatus.ENABLED })
                     publishJobs.push(alwaysEnableNewFlow)
                     break
@@ -150,6 +172,74 @@ export const projectStateService = (log: FastifyBaseLogger) => ({
                 }
             }
         }
+    },
+    async applyFolders({ projectId, folders }: ApplyFoldersParams): Promise<Map<string, string>> {
+        const folderIdMap = new Map<string, string>()
+        const existingFolders = await flowFolderService(log).listAllByProject({ projectId })
+        for (const folder of existingFolders) {
+            if (!isNil(folder.externalId)) {
+                folderIdMap.set(folder.externalId, folder.id)
+            }
+        }
+        for (const operation of folders) {
+            switch (operation.type) {
+                case FolderOperationType.CREATE_FOLDER: {
+                    const folder = await flowFolderService(log).upsertByExternalId({
+                        projectId,
+                        externalId: operation.folderState.externalId,
+                        displayName: operation.folderState.displayName,
+                        displayOrder: operation.folderState.displayOrder,
+                    })
+                    folderIdMap.set(operation.folderState.externalId, folder.id)
+                    break
+                }
+                case FolderOperationType.UPDATE_FOLDER: {
+                    const folder = await flowFolderService(log).upsertByExternalId({
+                        projectId,
+                        externalId: operation.newFolderState.externalId,
+                        displayName: operation.newFolderState.displayName,
+                        displayOrder: operation.newFolderState.displayOrder,
+                    })
+                    folderIdMap.set(operation.newFolderState.externalId, folder.id)
+                    break
+                }
+                case FolderOperationType.DELETE_FOLDER: {
+                    await flowFolderService(log).deleteByExternalId({
+                        projectId,
+                        externalId: operation.folderState.externalId,
+                    })
+                    break
+                }
+            }
+        }
+        return folderIdMap
+    },
+    async assignFolderFromState({ flowState, targetFlowId, projectId, platformId, folderIdMap, sourceFolders }: AssignFolderParams): Promise<void> {
+        const sourceFolderId = flowState.folderId
+        if (isNil(sourceFolderId)) {
+            return
+        }
+        const sourceFolderExternalId = sourceFolders.find((folder) => folder.id === sourceFolderId)?.externalId
+        if (isNil(sourceFolderExternalId)) {
+            return
+        }
+        const targetFolderId = folderIdMap.get(sourceFolderExternalId)
+        if (isNil(targetFolderId)) {
+            return
+        }
+        await flowService(log).update({
+            id: targetFlowId,
+            projectId,
+            platformId,
+            userId: null,
+            emitEvents: false,
+            operation: {
+                type: FlowOperationType.CHANGE_FOLDER,
+                request: {
+                    folderId: targetFolderId,
+                },
+            },
+        })
     },
     async save(projectId: ProjectId, name: string, log: FastifyBaseLogger): Promise<FileId> {
         const fileToSave: ProjectState = await this.getProjectState(projectId, log)
@@ -182,20 +272,13 @@ export const projectStateService = (log: FastifyBaseLogger) => ({
         })
         const flowIds = flows.map((f) => f.id)
 
-        const [flowVersionMap, triggerSourceMap, connections, tables] = await Promise.all([
+        const [flowVersionMap, triggerSourceMap, connections, tables, folders] = await Promise.all([
             flowVersionService(log).getLatestVersionsByFlowIds(flowIds, projectId),
             triggerSourceService(log).getByFlowIds({ flowIds, projectId }),
             appConnectionService(log).getManyConnectionStates({ projectId }),
-            tableService.list({
-                folderId: undefined,
-                projectId,
-                cursor: undefined,
-                limit: 1000,
-                name: undefined,
-                externalIds: undefined,
-            }),
+            getAllTables({ projectId }),
+            flowFolderService(log).listAllByProject({ projectId }),
         ])
-
         const allPopulatedFlows: PopulatedFlow[] = flows
             .filter((flow) => flowVersionMap.has(flow.id))
             .map((flow) => {
@@ -209,17 +292,25 @@ export const projectStateService = (log: FastifyBaseLogger) => ({
                 }
             })
 
-        const tableIds = tables.data.map((t) => t.id)
+        const tableIds = tables.map((t) => t.id)
         const fieldsMap = await fieldService.getAllByTableIds({ projectId, tableIds })
-        const populatedTables = tables.data.map((table) => ({
+        const populatedTables: PopulatedTable[] = tables.map((table) => ({
             ...table,
             fields: fieldsMap.get(table.id) ?? [],
+        }))
+
+        const folderStates: FolderState[] = folders.map((folder) => ({
+            id: folder.id,
+            externalId: folder.externalId ?? folder.id,
+            displayName: folder.displayName,
+            displayOrder: folder.displayOrder,
         }))
 
         return toProjectState({
             flows: allPopulatedFlows,
             connections,
             tables: populatedTables,
+            folders: folderStates,
             log,
         })
     },
@@ -250,7 +341,7 @@ export const projectStateService = (log: FastifyBaseLogger) => ({
     },
 })
 
-async function toProjectState({ flows, connections, tables, log }: ToProjectStateParams): Promise<ProjectState> {
+async function toProjectState({ flows, connections, tables, folders, log }: ToProjectStateParams): Promise<ProjectState> {
     const flowsInProjectState: FlowState[] = await Promise.all(flows.map(async (flow) => projectStateService(log).getFlowState(flow)))
 
     const tablesInProjectState: TableState[] = tables.map((table) => projectStateService(log).getTableState(table))
@@ -259,7 +350,26 @@ async function toProjectState({ flows, connections, tables, log }: ToProjectStat
         flows: flowsInProjectState,
         connections,
         tables: tablesInProjectState,
+        folders,
     }
+}
+
+async function getAllTables({ projectId }: { projectId: ProjectId }): Promise<Table[]> {
+    const result: Table[] = []
+    let cursor: string | undefined
+    do {
+        const page = await tableService.list({
+            folderId: undefined,
+            projectId,
+            cursor,
+            limit: 200,
+            name: undefined,
+            externalIds: undefined,
+        })
+        result.push(...page.data)
+        cursor = page.next ?? undefined
+    } while (!isNil(cursor))
+    return result
 }
 
 type ApplyProjectStateRequest = {
@@ -267,11 +377,27 @@ type ApplyProjectStateRequest = {
     diffs: DiffState
     log: FastifyBaseLogger
     platformId: string
+    sourceFolders?: FolderState[]
+}
+
+type ApplyFoldersParams = {
+    projectId: ProjectId
+    folders: DiffState['folders']
+}
+
+type AssignFolderParams = {
+    flowState: FlowState
+    targetFlowId: string
+    projectId: ProjectId
+    platformId: string
+    folderIdMap: Map<string, string>
+    sourceFolders: FolderState[]
 }
 
 type ToProjectStateParams = {
     flows: PopulatedFlow[]
     connections: ConnectionState[]
     tables: PopulatedTable[]
+    folders: FolderState[]
     log: FastifyBaseLogger
 }

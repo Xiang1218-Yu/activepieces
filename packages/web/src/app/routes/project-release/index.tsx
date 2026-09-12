@@ -13,8 +13,9 @@ import {
   Clock,
   User,
   Database,
+  Boxes,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { DataTable, RowDataWithActions } from '@/components/custom/data-table';
 import { DataTableColumnHeader } from '@/components/custom/data-table/data-table-column-header';
@@ -169,6 +170,21 @@ const ProjectReleasesPage = () => {
         emptyStateIcon={<Package className="size-14" />}
         columns={columns}
         toolbarButtons={[
+          <PermissionNeededTooltip
+            key="migration-precheck"
+            hasPermission={checkAccess(Permission.READ_PROJECT_RELEASE)}
+          >
+            <Button variant="outline" asChild>
+              <Link
+                to={authenticationSession.appendProjectRoutePrefix(
+                  '/migration-precheck',
+                )}
+              >
+                <Boxes className="mr-2 size-4" />
+                {t('Migration Precheck')}
+              </Link>
+            </Button>
+          </PermissionNeededTooltip>,
           <PushEverythingDialog key="push">
             <Button
               variant="outline"
