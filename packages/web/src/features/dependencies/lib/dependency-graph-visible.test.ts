@@ -103,6 +103,77 @@ describe('dependencyGraphVisible.buildVisibleGraph', () => {
   });
 });
 
+describe('dependencyGraphVisible.filterNodesToViewport', () => {
+  const nodes = Array.from({ length: LARGE_PROJECT_NODE_COUNT }, (_, index) =>
+    makeNode(index),
+  );
+  const edges = Array.from(
+    { length: LARGE_PROJECT_NODE_COUNT - 1 },
+    (_, index) => makeEdge(index),
+  );
+
+  it('keeps only nodes intersecting the viewport rect plus margin', () => {
+    const graph = dependencyGraphVisible.buildVisibleGraph({
+      nodes,
+      edges,
+      renderLimit: FIRST_BATCH,
+    });
+    const firstPosition = graph.positions.get('FLOW:flow-0')!;
+    const viewportRect = {
+      x: firstPosition.x - 10,
+      y: firstPosition.y - 10,
+      width: 500,
+      height: 400,
+    };
+
+    const inViewport = dependencyGraphVisible.filterNodesToViewport({
+      nodes: graph.nodes,
+      positions: graph.positions,
+      viewportRect,
+      margin: 0,
+    });
+
+    expect(inViewport.length).toBeGreaterThan(0);
+    expect(inViewport.length).toBeLessThan(graph.nodes.length);
+    for (const node of inViewport) {
+      const position = graph.positions.get(node.id)!;
+      expect(position.x).toBeLessThanOrEqual(
+        viewportRect.x + viewportRect.width,
+      );
+      expect(position.y).toBeLessThanOrEqual(
+        viewportRect.y + viewportRect.height,
+      );
+    }
+  });
+
+  it('first render of a large project lays out and filters fewer nodes than the project total', () => {
+    const firstBatch = dependencyGraphVisible.buildVisibleGraph({
+      nodes,
+      edges,
+      renderLimit: FIRST_BATCH,
+    });
+    expect(firstBatch.positions.size).toBeLessThan(LARGE_PROJECT_NODE_COUNT);
+
+    const bounds = dependencyGraphVisible.computeBounds(firstBatch.positions);
+    const viewportRect = {
+      x: bounds.minX,
+      y: bounds.minY,
+      width: 1200,
+      height: 800,
+    };
+    const displayed = dependencyGraphVisible.filterNodesToViewport({
+      nodes: firstBatch.nodes,
+      positions: firstBatch.positions,
+      viewportRect,
+      margin: 600,
+    });
+
+    expect(displayed.length).toBeLessThanOrEqual(FIRST_BATCH);
+    expect(displayed.length).toBeLessThan(LARGE_PROJECT_NODE_COUNT);
+    expect(firstBatch.totalCount).toBe(LARGE_PROJECT_NODE_COUNT);
+  });
+});
+
 describe('dependencyGraphNavigation.getNodePath', () => {
   const base = {
     status: DependencyNodeStatus.ACTIVE,
@@ -148,9 +219,7 @@ describe('dependencyGraphNavigation.getNodePath', () => {
         displayName: 'My Connection (prod)',
         refId: 'connection-id-1',
       }),
-    ).toBe(
-      `/connections?displayName=${encodeURIComponent('My Connection (prod)')}`,
-    );
+    ).toBe('/connections/connection-id-1');
   });
 
   it('returns null for pieces, deleted objects and missing references', () => {
@@ -181,6 +250,16 @@ describe('dependencyGraphNavigation.getNodePath', () => {
         id: 'FLOW:flow-2',
         type: DependencyNodeType.FLOW,
         displayName: 'Flow 2',
+        refId: null,
+      }),
+    ).toBeNull();
+
+    expect(
+      dependencyGraphNavigation.getNodePath({
+        ...base,
+        id: 'CONNECTION:conn-2',
+        type: DependencyNodeType.CONNECTION,
+        displayName: 'Conn 2',
         refId: null,
       }),
     ).toBeNull();

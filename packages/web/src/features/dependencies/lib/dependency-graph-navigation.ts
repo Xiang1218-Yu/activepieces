@@ -20,9 +20,7 @@ export const dependencyGraphNavigation = {
       case DependencyNodeType.AGENT:
         return isNil(node.refId) ? null : `/agents/${node.refId}`;
       case DependencyNodeType.CONNECTION:
-        return `/connections?displayName=${encodeURIComponent(
-          node.displayName,
-        )}`;
+        return isNil(node.refId) ? null : `/connections/${node.refId}`;
       case DependencyNodeType.PIECE:
         return null;
     }

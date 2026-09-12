@@ -377,6 +377,14 @@ export const appConnectionsQueries = {
     });
   },
 
+  useAppConnection: (id: string | undefined) => {
+    return useQuery({
+      queryKey: ['app-connections', 'single', id],
+      queryFn: () => appConnectionsApi.get(id!),
+      enabled: !isNil(id),
+    });
+  },
+
   useListSearchParams: () => {
     const { search } = useLocation();
     return useMemo(() => {

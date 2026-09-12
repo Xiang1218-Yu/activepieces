@@ -15,8 +15,9 @@ import {
   Workflow,
 } from 'lucide-react';
 
-import { dependencyGraphLabels } from '@/features/dependencies';
 import { cn } from '@/lib/utils';
+
+import { dependencyGraphLabels } from '../lib/dependency-graph-labels';
 
 const NODE_TYPE_ICONS: Record<DependencyNodeType, typeof Workflow> = {
   [DependencyNodeType.FLOW]: Workflow,

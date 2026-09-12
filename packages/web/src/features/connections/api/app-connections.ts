@@ -23,6 +23,11 @@ export const appConnectionsApi = {
       request,
     );
   },
+  get(id: string): Promise<AppConnectionWithoutSensitiveData> {
+    return api.get<AppConnectionWithoutSensitiveData>(
+      `/v1/app-connections/${id}`,
+    );
+  },
   upsert(
     request: UpsertAppConnectionRequestBody,
   ): Promise<AppConnectionWithoutSensitiveData> {

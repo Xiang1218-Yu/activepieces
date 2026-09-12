@@ -52,6 +52,13 @@ const AppConnectionsPage = lazyWithRetry(
     import('./connections').then((m) => ({ default: m.AppConnectionsPage })),
   'connections',
 );
+const AppConnectionDetailPage = lazyWithRetry(
+  () =>
+    import('./connections/id').then((m) => ({
+      default: m.AppConnectionDetailPage,
+    })),
+  'connection-detail',
+);
 const VariablesPage = lazyWithRetry(
   () => import('./variables').then((m) => ({ default: m.VariablesPage })),
   'variables',
@@ -218,6 +225,22 @@ export const projectRoutes = [
           <PageTitle title="Connections">
             <SuspenseWrapper>
               <AppConnectionsPage />
+            </SuspenseWrapper>
+          </PageTitle>
+        </RoutePermissionGuard>
+      </ProjectDashboardLayout>
+    ),
+  }),
+  ...ProjectRouterWrapper({
+    path: routesThatRequireProjectId.singleConnection,
+    element: (
+      <ProjectDashboardLayout>
+        <RoutePermissionGuard
+          requiredPermissions={Permission.READ_APP_CONNECTION}
+        >
+          <PageTitle title="Connection">
+            <SuspenseWrapper>
+              <AppConnectionDetailPage />
             </SuspenseWrapper>
           </PageTitle>
         </RoutePermissionGuard>

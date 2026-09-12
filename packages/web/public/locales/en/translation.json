@@ -2857,5 +2857,6 @@
   "dependencies": "dependencies",
   "Draft-only references": "Draft-only references",
   "Dashed edges only exist in a draft version and are not published yet.": "Dashed edges only exist in a draft version and are not published yet.",
-  "All types": "All types"
+  "All types": "All types",
+  "Back to connections": "Back to connections"
 }
