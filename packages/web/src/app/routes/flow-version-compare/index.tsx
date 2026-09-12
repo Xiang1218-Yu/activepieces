@@ -297,16 +297,33 @@ function DiffErrorState({
   onRetry: () => void;
 }) {
   const message = useMemo(() => {
-    const data = (
-      error as { response?: { data?: { params?: { message?: string } } } }
-    )?.response?.data;
-    if (data?.params?.message === 'flowVersionDiff_sameVersion') {
-      return t('Select two different versions to compare.');
+    const response = (
+      error as {
+        response?: {
+          status?: number;
+          data?: {
+            code?: string;
+            params?: { message?: string };
+          };
+        };
+      }
+    )?.response;
+    const token = response?.data?.params?.message;
+    if (
+      token === 'flowVersionDiff_versionNotFound' ||
+      response?.status === 404
+    ) {
+      return t(
+        'One of the selected versions no longer exists. Pick two current versions of this flow.',
+      );
     }
-    if (data?.params?.message === 'flowVersionDiff_crossFlow') {
+    if (token === 'flowVersionDiff_crossFlow') {
       return t(
         'Both versions must belong to the same flow. Open the compare page from a single flow.',
       );
+    }
+    if (token === 'flowVersionDiff_sameVersion') {
+      return t('Select two different versions to compare.');
     }
     return t(
       'We could not load this comparison. One of the versions may have been deleted.',

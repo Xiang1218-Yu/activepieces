@@ -278,6 +278,20 @@ export const flowVersionService = (log: FastifyBaseLogger) => ({
             removeSampleData,
         )
     },
+    async getFlowIdForVersion({
+        versionId,
+        projectId,
+        entityManager,
+    }: GetFlowIdForVersionParams): Promise<FlowId | null> {
+        const row = await flowVersionRepo(entityManager)
+            .createQueryBuilder('flow_version')
+            .innerJoin('flow', 'flow', 'flow.id = flow_version."flowId"')
+            .select('flow_version."flowId"', 'flowId')
+            .where('flow_version.id = :versionId', { versionId })
+            .andWhere('flow."projectId" = :projectId', { projectId })
+            .getRawOne<{ flowId: FlowId }>()
+        return row?.flowId ?? null
+    },
     async createEmptyVersion({
         flowId,
         displayName,
@@ -394,6 +408,12 @@ type GetFlowVersionOrThrowParams = {
     entityManager?: EntityManager
     projectId?: ProjectId
     platformId?: string
+}
+
+type GetFlowIdForVersionParams = {
+    versionId: FlowVersionId
+    projectId: ProjectId
+    entityManager?: EntityManager
 }
 
 type NewFlowVersion = Omit<FlowVersion, 'created' | 'updated'>

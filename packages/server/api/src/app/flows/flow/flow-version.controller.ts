@@ -43,6 +43,7 @@ export const flowVersionController: FastifyPluginAsyncZod = async (fastify) => {
             })
             return flowVersionDiffService(request.log).getDiff({
                 flowId: request.params.flowId,
+                projectId: request.projectId,
                 request: request.query,
             })
         },

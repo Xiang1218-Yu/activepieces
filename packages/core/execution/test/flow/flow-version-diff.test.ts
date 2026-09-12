@@ -428,6 +428,233 @@ describe('flowVersionDiffUtil', () => {
         expect(labels).toContain('document')
     })
 
+    it('masks short FILE values even when they do not look like base64', () => {
+        const from = buildVersion({
+            trigger: chain(buildVersion().trigger, [
+                buildPieceAction('step_1', {
+                    settings: {
+                        ...buildPieceAction('step_1').settings,
+                        propertySettings: {
+                            attachment: {
+                                type: 'MANUAL',
+                                schema: { type: 'FILE' },
+                            },
+                        },
+                        input: { attachment: 'a' },
+                    },
+                }),
+            ]),
+        })
+        const to = buildVersion({
+            id: 'version-2',
+            trigger: chain(buildVersion().trigger, [
+                buildPieceAction('step_1', {
+                    settings: {
+                        ...buildPieceAction('step_1').settings,
+                        propertySettings: {
+                            attachment: {
+                                type: 'MANUAL',
+                                schema: { type: 'FILE' },
+                            },
+                        },
+                        input: { attachment: 'b' },
+                    },
+                }),
+            ]),
+        })
+
+        const diff = flowVersionDiffUtil.diffFlowVersions({
+            fromVersion: from,
+            toVersion: to,
+        })
+        const serialized = JSON.stringify(diff)
+        expect(serialized).not.toContain('"a"')
+        expect(serialized).not.toContain('"b"')
+        const change = diff.steps
+            .find((step) => step.stepName === 'step_1')
+            ?.changes.find((entry) => entry.label === 'attachment')
+        expect(change?.beforeMasked).toBe(true)
+        expect(change?.afterMasked).toBe(true)
+        expect(change?.before).toBe(MASKED_VALUE)
+        expect(change?.after).toBe(MASKED_VALUE)
+    })
+
+    it('masks nested FILE objects as a whole without leaking their inner fields', () => {
+        const fileObjectFrom = {
+            filename: 'invoice.pdf',
+            extension: 'pdf',
+            base64: 'SENSITIVE-INNER-CONTENT',
+            size: 42,
+        }
+        const fileObjectTo = {
+            filename: 'contract.pdf',
+            extension: 'pdf',
+            base64: 'OTHER-SENSITIVE-INNER-CONTENT',
+            size: 99,
+        }
+        const from = buildVersion({
+            trigger: chain(buildVersion().trigger, [
+                buildPieceAction('step_1', {
+                    settings: {
+                        ...buildPieceAction('step_1').settings,
+                        propertySettings: {
+                            attachment: {
+                                type: 'MANUAL',
+                                schema: { type: 'FILE' },
+                            },
+                        },
+                        input: { attachment: fileObjectFrom },
+                    },
+                }),
+            ]),
+        })
+        const to = buildVersion({
+            id: 'version-2',
+            trigger: chain(buildVersion().trigger, [
+                buildPieceAction('step_1', {
+                    settings: {
+                        ...buildPieceAction('step_1').settings,
+                        propertySettings: {
+                            attachment: {
+                                type: 'MANUAL',
+                                schema: { type: 'FILE' },
+                            },
+                        },
+                        input: { attachment: fileObjectTo },
+                    },
+                }),
+            ]),
+        })
+
+        const diff = flowVersionDiffUtil.diffFlowVersions({
+            fromVersion: from,
+            toVersion: to,
+        })
+        const serialized = JSON.stringify(diff)
+        expect(serialized).not.toContain('invoice.pdf')
+        expect(serialized).not.toContain('contract.pdf')
+        expect(serialized).not.toContain('SENSITIVE-INNER-CONTENT')
+        expect(serialized).not.toContain('OTHER-SENSITIVE-INNER-CONTENT')
+        const changes = diff.steps
+            .find((step) => step.stepName === 'step_1')
+            ?.changes ?? []
+        const attachmentChanges = changes.filter(
+            (entry) => entry.label === 'attachment',
+        )
+        expect(attachmentChanges).toHaveLength(1)
+        expect(attachmentChanges[0].beforeMasked).toBe(true)
+        expect(attachmentChanges[0].afterMasked).toBe(true)
+    })
+
+    it('masks FILE values nested inside arrays and plain objects', () => {
+        const from = buildVersion({
+            trigger: chain(buildVersion().trigger, [
+                buildPieceAction('step_1', {
+                    settings: {
+                        ...buildPieceAction('step_1').settings,
+                        propertySettings: {
+                            files: { type: 'MANUAL', schema: { type: 'FILE' } },
+                        },
+                        input: {
+                            files: [
+                                { filename: 'a.png', data: 'SECRET-A' },
+                                { filename: 'b.png', data: 'SECRET-B' },
+                            ],
+                        },
+                    },
+                }),
+            ]),
+        })
+        const to = buildVersion({
+            id: 'version-2',
+            trigger: chain(buildVersion().trigger, [
+                buildPieceAction('step_1', {
+                    settings: {
+                        ...buildPieceAction('step_1').settings,
+                        propertySettings: {
+                            files: { type: 'MANUAL', schema: { type: 'FILE' } },
+                        },
+                        input: {
+                            files: [
+                                { filename: 'c.png', data: 'SECRET-C' },
+                                { filename: 'd.png', data: 'SECRET-D' },
+                            ],
+                        },
+                    },
+                }),
+            ]),
+        })
+
+        const diff = flowVersionDiffUtil.diffFlowVersions({
+            fromVersion: from,
+            toVersion: to,
+        })
+        const serialized = JSON.stringify(diff)
+        for (const leaked of [
+            'SECRET-A',
+            'SECRET-B',
+            'SECRET-C',
+            'SECRET-D',
+            'a.png',
+        ]) {
+            expect(serialized).not.toContain(leaked)
+        }
+    })
+
+    it('masks Buffer and serialized Buffer file content', () => {
+        const linkActions = (actions: FlowAction[]): FlowTrigger => {
+            let nextAction: FlowAction | undefined
+            const trigger = buildVersion().trigger
+            for (let i = actions.length - 1; i >= 0; i--) {
+                actions[i].nextAction = nextAction
+                nextAction = actions[i]
+            }
+            trigger.nextAction = nextAction
+            return trigger
+        }
+        const buildWithBinaries = (
+            bytes: Uint8Array,
+            serializedData: number[],
+        ): FlowVersion =>
+            buildVersion({
+                trigger: linkActions([
+                    buildPieceAction('step_1', {
+                        settings: {
+                            ...buildPieceAction('step_1').settings,
+                            input: { binary: bytes },
+                        },
+                    }),
+                    buildPieceAction('step_2', {
+                        settings: {
+                            ...buildPieceAction('step_2').settings,
+                            input: {
+                                binary: { type: 'Buffer', data: serializedData },
+                            },
+                        },
+                    }),
+                ]),
+            })
+        const from = buildWithBinaries(new Uint8Array([104, 105]), [104, 105, 10])
+        const to = buildVersion({
+            id: 'version-2',
+            ...buildWithBinaries(new Uint8Array([105]), [105, 10]),
+        })
+
+        const diff = flowVersionDiffUtil.diffFlowVersions({
+            fromVersion: from,
+            toVersion: to,
+        })
+        for (const stepName of ['step_1', 'step_2']) {
+            const change = diff.steps
+                .find((step) => step.stepName === stepName)
+                ?.changes.find((entry) => entry.label === 'binary')
+            expect(change?.beforeMasked).toBe(true)
+            expect(change?.afterMasked).toBe(true)
+            expect(change?.before).toBe(MASKED_VALUE)
+            expect(change?.after).toBe(MASKED_VALUE)
+        }
+    })
+
     it('reports connection reference changes separately and never includes the connection id as an input change', () => {
         const from = buildVersion({
             trigger: chain(buildVersion().trigger, [

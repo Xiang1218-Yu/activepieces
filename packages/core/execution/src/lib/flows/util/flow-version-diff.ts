@@ -46,6 +46,8 @@ const SECRET_NAME_TOKENS = new Set([
 const CONNECTION_EXPRESSION_PATTERN =
     /^\s*\{\{\s*connections(?:\[['"][^'"]+['"]\]|\.[A-Za-z0-9_]+)\s*\}\}\s*$/
 const DATA_URL_PATTERN = /^\s*data:[^;]*;base64,/
+const BASE64_CONTENT_PATTERN = /^[A-Za-z0-9+/=\r\n]+$/
+const INLINE_BASE64_MIN_LENGTH = 256
 
 type DiffVersions = {
     fromVersion: FlowVersion
@@ -639,13 +641,15 @@ function diffInputs({
     }
 }
 
-type SecretResolver = (path: string, key: string, value: unknown) => boolean
+type SecretResolver = (key: string, value: unknown) => boolean
 
 function createSecretResolver(from: Step, to: Step): SecretResolver {
-    const schemaByKey = new Map<string, unknown>()
+    const schemaByKey = new Map<string, { schema?: { type?: string } }>()
     for (const step of [from, to]) {
         const propertySettings = (
-            step.settings as { propertySettings?: Record<string, unknown> }
+            step.settings as {
+                propertySettings?: Record<string, { schema?: { type?: string } }>
+            }
         ).propertySettings
         if (propertySettings) {
             for (const [key, value] of Object.entries(propertySettings)) {
@@ -653,14 +657,11 @@ function createSecretResolver(from: Step, to: Step): SecretResolver {
             }
         }
     }
-    return (path: string, key: string, value: unknown): boolean => {
+    return (key: string, value: unknown): boolean => {
         if (key === 'auth') {
             return false
         }
-        const propertySetting = schemaByKey.get(key) as
-            | { schema?: { type?: string } }
-            | undefined
-        const schemaType = propertySetting?.schema?.type
+        const schemaType = schemaByKey.get(key)?.schema?.type
         if (
             typeof schemaType === 'string' &&
             (PROPERTY_SCHEMA_SECRET_TYPES.includes(schemaType) ||
@@ -671,13 +672,7 @@ function createSecretResolver(from: Step, to: Step): SecretResolver {
         if (looksLikeSecretKey(key)) {
             return true
         }
-        if (
-            typeof value === 'string' &&
-            (DATA_URL_PATTERN.test(value) || looksLikeInlineFile(value))
-        ) {
-            return true
-        }
-        return false
+        return containsBinaryContent(value)
     }
 }
 
@@ -691,11 +686,10 @@ function looksLikeSecretKey(key: string): boolean {
     const compact = splitOnCaseAndSeparators.replace(/\s+/g, '')
     const tokens = new Set(splitOnCaseAndSeparators.split(' '))
     if (
-        tokens.has('api') &&
-        tokens.has('key') ||
-        tokens.has('access') && tokens.has('key') ||
-        tokens.has('client') && tokens.has('secret') ||
-        tokens.has('private') && tokens.has('key')
+        (tokens.has('api') && tokens.has('key')) ||
+        (tokens.has('access') && tokens.has('key')) ||
+        (tokens.has('client') && tokens.has('secret')) ||
+        (tokens.has('private') && tokens.has('key'))
     ) {
         return true
     }
@@ -704,12 +698,67 @@ function looksLikeSecretKey(key: string): boolean {
     )
 }
 
-function looksLikeInlineFile(value: string): boolean {
-    if (value.length < 256 || value.includes('{{')) {
+function containsBinaryContent(value: unknown): boolean {
+    if (isBufferLike(value)) {
+        return true
+    }
+    if (typeof value === 'string') {
+        if (DATA_URL_PATTERN.test(value)) {
+            return true
+        }
+        if (value.includes('{{')) {
+            return false
+        }
+        return looksLikeInlineBase64File(value)
+    }
+    if (Array.isArray(value)) {
+        return value.some((item) => containsBinaryContent(item))
+    }
+    if (isPlainObject(value)) {
+        return Object.values(value).some((item) => containsBinaryContent(item))
+    }
+    return false
+}
+
+function isBufferLike(value: unknown): boolean {
+    if (typeof Uint8Array !== 'undefined' && value instanceof Uint8Array) {
+        return true
+    }
+    if (isPlainObject(value)) {
+        const type = (value as Record<string, unknown>)['type']
+        const data = (value as Record<string, unknown>)['data']
+        if (type === 'Buffer' && isDeserializedByteArray(data)) {
+            return true
+        }
+        if (
+            (type === 'file' || type === 'FILE') &&
+            isDeserializedByteArray(data)
+        ) {
+            return true
+        }
+    }
+    return false
+}
+
+function isDeserializedByteArray(value: unknown): value is number[] {
+    if (!Array.isArray(value) || value.length === 0) {
         return false
     }
+    return value.every(
+        (byte) =>
+            typeof byte === 'number' &&
+            Number.isInteger(byte) &&
+            byte >= 0 &&
+            byte <= 255,
+    )
+}
+
+function looksLikeInlineBase64File(value: string): boolean {
     const compact = value.replace(/\s/g, '')
-    if (!/^[A-Za-z0-9+/=\r\n]+$/.test(compact)) {
+    if (compact.length < INLINE_BASE64_MIN_LENGTH) {
+        return false
+    }
+    if (!BASE64_CONTENT_PATTERN.test(compact)) {
         return false
     }
     return compact.length % 4 === 0
@@ -722,32 +771,49 @@ function diffInputValues({
     labelPrefix,
     secretResolver,
 }: {
-    fromInput: Record<string, unknown>
-    toInput: Record<string, unknown>
+    fromInput: unknown
+    toInput: unknown
     path: string
     labelPrefix: string
     secretResolver: SecretResolver
 }): FlowVersionDiffValueChange[] {
+    if (!isContainerValue(fromInput) && !isContainerValue(toInput)) {
+        return []
+    }
+    const entries = getEntries(fromInput, toInput)
     const changes: FlowVersionDiffValueChange[] = []
-    const keys = Array.from(
-        new Set([...Object.keys(fromInput), ...Object.keys(toInput)]),
-    )
-    for (const key of keys) {
-        const keyPath = `${path}.${key}`
-        const label = labelPrefix ? `${labelPrefix}.${key}` : key
-        const fromValue = fromInput[key]
-        const toValue = toInput[key]
+    for (const { key, displayKey, fromValue, toValue } of entries) {
+        const keyPath = formatChildPath(path, key, displayKey)
+        const label = labelPrefix
+            ? `${labelPrefix}.${displayKey}`
+            : displayKey
         if (key === 'auth') {
             continue
         }
         if (isConnectionReference(fromValue) || isConnectionReference(toValue)) {
             continue
         }
-        if (isPlainObject(fromValue) || isPlainObject(toValue)) {
+        const keyIsSensitive =
+            secretResolver(key, fromValue) || secretResolver(key, toValue)
+        if (keyIsSensitive) {
+            if (deepEqualValues(fromValue, toValue)) {
+                continue
+            }
+            changes.push({
+                path: keyPath,
+                label,
+                before: !isNil(fromValue) ? MASKED_VALUE : fromValue,
+                after: !isNil(toValue) ? MASKED_VALUE : toValue,
+                beforeMasked: !isNil(fromValue) || undefined,
+                afterMasked: !isNil(toValue) || undefined,
+            })
+            continue
+        }
+        if (isContainerValue(fromValue) || isContainerValue(toValue)) {
             changes.push(
                 ...diffInputValues({
-                    fromInput: (fromValue as Record<string, unknown>) ?? {},
-                    toInput: (toValue as Record<string, unknown>) ?? {},
+                    fromInput: fromValue,
+                    toInput: toValue,
                     path: keyPath,
                     labelPrefix: label,
                     secretResolver,
@@ -758,20 +824,73 @@ function diffInputValues({
         if (deepEqualValues(fromValue, toValue)) {
             continue
         }
-        const isSecret =
-            secretResolver(keyPath, key, toValue) ||
-            secretResolver(keyPath, key, fromValue)
         changes.push({
             path: keyPath,
             label,
-            before: isSecret && !isNil(fromValue) ? MASKED_VALUE : fromValue,
-            after: isSecret && !isNil(toValue) ? MASKED_VALUE : toValue,
-            beforeMasked:
-                isSecret && !isNil(fromValue) ? true : undefined,
-            afterMasked: isSecret && !isNil(toValue) ? true : undefined,
+            before: fromValue,
+            after: toValue,
         })
     }
     return changes
+}
+
+type Entry = {
+    key: string
+    displayKey: string
+    fromValue: unknown
+    toValue: unknown
+}
+
+function getEntries(fromInput: unknown, toInput: unknown): Entry[] {
+    if (Array.isArray(fromInput) || Array.isArray(toInput)) {
+        const from = Array.isArray(fromInput) ? fromInput : []
+        const to = Array.isArray(toInput) ? toInput : []
+        const length = Math.max(from.length, to.length)
+        const entries: Entry[] = []
+        for (let index = 0; index < length; index++) {
+            const key = index.toString()
+            entries.push({
+                key,
+                displayKey: `[${key}]`,
+                fromValue: from[index],
+                toValue: to[index],
+            })
+        }
+        return entries
+    }
+    const from = (isPlainObject(fromInput)
+        ? (fromInput as Record<string, unknown>)
+        : {}
+    )
+    const to = (isPlainObject(toInput)
+        ? (toInput as Record<string, unknown>)
+        : {}
+    )
+    return Array.from(new Set([...Object.keys(from), ...Object.keys(to)])).map(
+        (key) => ({
+            key,
+            displayKey: key,
+            fromValue: from[key],
+            toValue: to[key],
+        }),
+    )
+}
+
+function formatChildPath(
+    parentPath: string,
+    key: string,
+    displayKey: string,
+): string {
+    if (displayKey.startsWith('[')) {
+        return `${parentPath}${displayKey}`
+    }
+    return `${parentPath}.${key}`
+}
+
+function isContainerValue(
+    value: unknown,
+): value is Record<string, unknown> | unknown[] {
+    return isPlainObject(value) || Array.isArray(value)
 }
 
 function collectConnectionChanges({

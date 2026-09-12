@@ -267,6 +267,7 @@
   "Select two different versions to compare.": "Select two different versions to compare.",
   "This flow needs at least two versions to compare.": "This flow needs at least two versions to compare.",
   "Both versions must belong to the same flow. Open the compare page from a single flow.": "Both versions must belong to the same flow. Open the compare page from a single flow.",
+  "One of the selected versions no longer exists. Pick two current versions of this flow.": "One of the selected versions no longer exists. Pick two current versions of this flow.",
   "We could not load this comparison. One of the versions may have been deleted.": "We could not load this comparison. One of the versions may have been deleted.",
   "These versions are identical": "These versions are identical",
   "No differences were found in triggers, steps, inputs, connections or notes.": "No differences were found in triggers, steps, inputs, connections or notes.",
