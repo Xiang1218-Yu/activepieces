@@ -18,6 +18,7 @@ import { LogInIcon } from '@/components/icons/log-in';
 import { MousePointerClickIcon } from '@/components/icons/mouse-pointer-click';
 import { PuzzleIcon } from '@/components/icons/puzzle';
 import { ReceiptIcon } from '@/components/icons/receipt';
+import { ReplaceIcon } from '@/components/icons/replace';
 import { ServerIcon } from '@/components/icons/server';
 import { SettingsIcon } from '@/components/icons/settings';
 import { Settings2Icon } from '@/components/icons/settings2';
@@ -84,6 +85,11 @@ export function PlatformSidebar() {
       label: t('Pieces'),
       icon: PuzzleIcon,
       locked: !platform.plan.managePiecesEnabled,
+    },
+    {
+      to: '/platform/setup/piece-compatibility',
+      label: t('Piece Compatibility'),
+      icon: ReplaceIcon,
     },
     {
       to: '/platform/setup/templates',

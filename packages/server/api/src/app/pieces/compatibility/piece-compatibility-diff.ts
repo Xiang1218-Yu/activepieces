@@ -388,7 +388,61 @@ function compareProperty({ name, fromProp, toProp, input, propertySettings, toVe
 
     issues.push(...compareOptions({ name, fromProp, toProp, input, inputPresent }))
     issues.push(...compareDynamicSettings({ name, toProp, inputPresent, propertySettings }))
+    const savedValueIssue = validateSavedValueAgainstProperty({ name, toProp, input, inputPresent })
+    if (!isNil(savedValueIssue)) {
+        issues.push(savedValueIssue)
+    }
     return issues
+}
+
+/**
+ * Validates a saved input value against the property rules of the NEW piece
+ * version. Runs for properties whose type did not change (type changes are
+ * already reported), so stale values that the new version would reject still
+ * surface. Dynamic expressions ({{...}}) are resolved at runtime and skipped.
+ * The saved value itself is never copied into the report.
+ */
+type ValidateSavedValueParams = {
+    name: string
+    toProp: PropertyShape
+    input: Record<string, unknown>
+    inputPresent: boolean
+}
+
+function validateSavedValueAgainstProperty({ name, toProp, input, inputPresent }: ValidateSavedValueParams): PieceCompatibilityIssue | null {
+    if (!inputPresent) {
+        return null
+    }
+    const value = input[name]
+    if (typeof value === 'string' && value.includes('{{')) {
+        return null
+    }
+    let valid: boolean
+    switch (toProp.type) {
+        case PropertyType.NUMBER:
+            valid = typeof value === 'number' || (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value)))
+            break
+        case PropertyType.CHECKBOX:
+            valid = typeof value === 'boolean' || value === 'true' || value === 'false'
+            break
+        case PropertyType.ARRAY:
+            valid = Array.isArray(value)
+            break
+        case PropertyType.OBJECT:
+            valid = isRecord(value)
+            break
+        default:
+            return null
+    }
+    if (valid) {
+        return null
+    }
+    return {
+        code: PieceCompatibilityIssueCode.SAVED_VALUE_INVALID_TYPE,
+        severity: PieceCompatibilityIssueSeverity.INCOMPATIBLE,
+        propertyName: name,
+        message: `The saved value for property "${name}" does not match the ${toProp.type ?? 'expected'} type of the new version. The step must be reconfigured.`,
+    }
 }
 
 type CompareOptionsParams = {

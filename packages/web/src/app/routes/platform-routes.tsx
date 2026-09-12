@@ -62,6 +62,11 @@ const PlatformPiecesPage = React.lazy(() =>
     default: m.PlatformPiecesPage,
   })),
 );
+const PieceCompatibilityPage = React.lazy(() =>
+  import('./platform/setup/piece-compatibility').then((m) => ({
+    default: m.PieceCompatibilityPage,
+  })),
+);
 const PieceSetDetailsPage = React.lazy(() =>
   import('./platform/setup/pieces/piece-sets/piece-set-details-page').then(
     (m) => ({ default: m.PieceSetDetailsPage }),
@@ -173,6 +178,18 @@ export const platformRoutes = [
         <PageTitle title="Pieces">
           <SuspenseWrapper>
             <PlatformPiecesPage />
+          </SuspenseWrapper>
+        </PageTitle>
+      </PlatformLayout>
+    ),
+  },
+  {
+    path: '/platform/setup/piece-compatibility',
+    element: (
+      <PlatformLayout>
+        <PageTitle title="Piece Compatibility">
+          <SuspenseWrapper>
+            <PieceCompatibilityPage />
           </SuspenseWrapper>
         </PageTitle>
       </PlatformLayout>

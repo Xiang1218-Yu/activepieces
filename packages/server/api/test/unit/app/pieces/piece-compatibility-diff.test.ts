@@ -298,6 +298,96 @@ describe('assessPieceStep', () => {
         })
     })
 
+    describe('saved input validation against the new version', () => {
+        const propsOf = (prop: Record<string, unknown>): Record<string, unknown> => ({ value: prop })
+
+        it('flags INCOMPATIBLE when a saved number value is not numeric', () => {
+            const prop = { type: 'NUMBER', displayName: 'Value', required: false }
+            const fromPiece = buildPiece({ actions: { send: buildActionDef({ props: propsOf(prop) }) } })
+            const toPiece = buildPiece({ version: '2.0.0', actions: { send: buildActionDef({ props: propsOf(prop) }) } })
+            const result = assessPieceStep({
+                step: buildActionStep({ input: { value: 'not-a-number' } }),
+                fromPiece,
+                toPiece,
+            })
+            expect(result.verdict).toBe(PieceStepCompatibilityVerdict.INCOMPATIBLE)
+            expect(issueCodes(result)).toEqual([PieceCompatibilityIssueCode.SAVED_VALUE_INVALID_TYPE])
+        })
+
+        it('accepts numeric strings and numbers for number properties', () => {
+            const prop = { type: 'NUMBER', displayName: 'Value', required: false }
+            const fromPiece = buildPiece({ actions: { send: buildActionDef({ props: propsOf(prop) }) } })
+            const toPiece = buildPiece({ version: '2.0.0', actions: { send: buildActionDef({ props: propsOf(prop) }) } })
+            for (const input of [{ value: 5 }, { value: '5.5' }]) {
+                const result = assessPieceStep({ step: buildActionStep({ input }), fromPiece, toPiece })
+                expect(result.verdict).toBe(PieceStepCompatibilityVerdict.COMPATIBLE)
+            }
+        })
+
+        it('flags INCOMPATIBLE when a saved checkbox value is not a boolean', () => {
+            const prop = { type: 'CHECKBOX', displayName: 'Value', required: false }
+            const fromPiece = buildPiece({ actions: { send: buildActionDef({ props: propsOf(prop) }) } })
+            const toPiece = buildPiece({ version: '2.0.0', actions: { send: buildActionDef({ props: propsOf(prop) }) } })
+            const result = assessPieceStep({
+                step: buildActionStep({ input: { value: 'yes' } }),
+                fromPiece,
+                toPiece,
+            })
+            expect(result.verdict).toBe(PieceStepCompatibilityVerdict.INCOMPATIBLE)
+            expect(issueCodes(result)).toEqual([PieceCompatibilityIssueCode.SAVED_VALUE_INVALID_TYPE])
+        })
+
+        it('flags INCOMPATIBLE when a saved array value is not an array', () => {
+            const prop = { type: 'ARRAY', displayName: 'Value', required: false }
+            const fromPiece = buildPiece({ actions: { send: buildActionDef({ props: propsOf(prop) }) } })
+            const toPiece = buildPiece({ version: '2.0.0', actions: { send: buildActionDef({ props: propsOf(prop) }) } })
+            const result = assessPieceStep({
+                step: buildActionStep({ input: { value: { unexpected: 'object' } } }),
+                fromPiece,
+                toPiece,
+            })
+            expect(result.verdict).toBe(PieceStepCompatibilityVerdict.INCOMPATIBLE)
+            expect(issueCodes(result)).toEqual([PieceCompatibilityIssueCode.SAVED_VALUE_INVALID_TYPE])
+        })
+
+        it('flags INCOMPATIBLE when a saved object value is not an object', () => {
+            const prop = { type: 'OBJECT', displayName: 'Value', required: false }
+            const fromPiece = buildPiece({ actions: { send: buildActionDef({ props: propsOf(prop) }) } })
+            const toPiece = buildPiece({ version: '2.0.0', actions: { send: buildActionDef({ props: propsOf(prop) }) } })
+            const result = assessPieceStep({
+                step: buildActionStep({ input: { value: ['an', 'array'] } }),
+                fromPiece,
+                toPiece,
+            })
+            expect(result.verdict).toBe(PieceStepCompatibilityVerdict.INCOMPATIBLE)
+            expect(issueCodes(result)).toEqual([PieceCompatibilityIssueCode.SAVED_VALUE_INVALID_TYPE])
+        })
+
+        it('skips validation for dynamic expressions', () => {
+            const prop = { type: 'NUMBER', displayName: 'Value', required: false }
+            const fromPiece = buildPiece({ actions: { send: buildActionDef({ props: propsOf(prop) }) } })
+            const toPiece = buildPiece({ version: '2.0.0', actions: { send: buildActionDef({ props: propsOf(prop) }) } })
+            const result = assessPieceStep({
+                step: buildActionStep({ input: { value: '{{trigger.body.count}}' } }),
+                fromPiece,
+                toPiece,
+            })
+            expect(result.verdict).toBe(PieceStepCompatibilityVerdict.COMPATIBLE)
+        })
+
+        it('does not double-report when the property type also changed', () => {
+            const fromPiece = buildPiece({ actions: { send: buildActionDef({ props: { value: textProp() } }) } })
+            const toPiece = buildPiece({ version: '2.0.0', actions: { send: buildActionDef({ props: { value: { type: 'NUMBER', displayName: 'Value', required: false } } }) } })
+            const result = assessPieceStep({
+                step: buildActionStep({ input: { value: 'not-a-number' } }),
+                fromPiece,
+                toPiece,
+            })
+            expect(result.verdict).toBe(PieceStepCompatibilityVerdict.INCOMPATIBLE)
+            expect(issueCodes(result)).toEqual([PieceCompatibilityIssueCode.PROPERTY_TYPE_CHANGED])
+        })
+    })
+
     describe('dynamic fields', () => {
         it('flags DISPLAY_ONLY when dynamic dropdown refreshers change', () => {
             const dropdown = (refreshers: string[]): Record<string, unknown> => ({
