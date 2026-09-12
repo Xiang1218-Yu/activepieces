@@ -27,6 +27,7 @@ export const webhookRequestInspectorController: FastifyPluginAsyncZod = async (a
             projectId: request.query.projectId,
             flowId: request.query.flowId,
             status: request.query.status,
+            statusClass: request.query.statusClass,
             requestId: request.query.requestId,
             createdAfter: request.query.createdAfter,
             createdBefore: request.query.createdBefore,

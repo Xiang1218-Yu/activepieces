@@ -28,6 +28,22 @@ export const WebhookRequestFileMetadata = z.object({
 })
 export type WebhookRequestFileMetadata = z.infer<typeof WebhookRequestFileMetadata>
 
+/**
+ * A header whose value was stripped before storage. The name is kept for debugging
+ * ("did the caller even send an Authorization header?") together with why it was masked.
+ */
+export const WebhookMaskedHeaderReason = z.enum(['SENSITIVE', 'CONNECTION'])
+export type WebhookMaskedHeaderReason = z.infer<typeof WebhookMaskedHeaderReason>
+
+export const WebhookMaskedHeader = z.object({
+    name: z.string(),
+    reason: WebhookMaskedHeaderReason,
+})
+export type WebhookMaskedHeader = z.infer<typeof WebhookMaskedHeader>
+
+export const WebhookStatusClass = z.enum(['2xx', '3xx', '4xx', '5xx'])
+export type WebhookStatusClass = z.infer<typeof WebhookStatusClass>
+
 export const WebhookRequestBodySummary = z.object({
     kind: z.nativeEnum(WebhookRequestBodyKind),
     contentType: z.string().nullable(),
@@ -55,6 +71,8 @@ export const WebhookRequestCapture = z.object({
     path: z.string(),
     // Every value is an array so that repeated keys are preserved exactly as sent.
     headers: z.record(z.string(), z.array(z.string())),
+    // Header names that arrived but whose values were never stored, with mask reason.
+    maskedHeaders: z.array(WebhookMaskedHeader),
     queryParams: z.record(z.string(), z.array(z.string())),
     body: WebhookRequestBodySummary,
     // Connection info is masked before storage (only a /24-equivalent prefix hint).
@@ -71,6 +89,7 @@ export const ListWebhookRequestCapturesRequestQuery = z.object({
     projectId: z.string(),
     flowId: OptionalArrayFromQuery(z.string()).optional(),
     status: OptionalArrayFromQuery(z.coerce.number()).optional(),
+    statusClass: OptionalArrayFromQuery(z.nativeEnum(WebhookStatusClass)).optional(),
     requestId: z.string().optional(),
     limit: z.coerce.number().optional(),
     cursor: z.string().optional(),

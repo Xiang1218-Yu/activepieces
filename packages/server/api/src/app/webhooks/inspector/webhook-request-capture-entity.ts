@@ -36,6 +36,11 @@ export const WebhookRequestCaptureEntity = new EntitySchema<WebhookRequestCaptur
             type: 'jsonb',
             nullable: false,
         },
+        maskedHeaders: {
+            type: 'jsonb',
+            nullable: false,
+            default: '[]',
+        },
         queryParams: {
             type: 'jsonb',
             nullable: false,

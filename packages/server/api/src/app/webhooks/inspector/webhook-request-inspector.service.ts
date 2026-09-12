@@ -5,7 +5,9 @@ import {
     RunEnvironment,
     SampleDataFileType,
     WebhookRequestCapture,
+    WebhookMaskedHeader,
     WebhookRequestBodyKind,
+    WebhookStatusClass,
 } from '@activepieces/shared'
 import { FastifyBaseLogger } from 'fastify'
 import { LessThan, In } from 'typeorm'
@@ -31,6 +33,7 @@ export type SaveCaptureParams = {
     method: string
     path: string
     headers: Record<string, string[]>
+    maskedHeaders: WebhookMaskedHeader[]
     queryParams: Record<string, string[]>
     body: WebhookRequestCapture['body']
     clientIpPrefix: string | null
@@ -43,6 +46,7 @@ export type ListCapturesParams = {
     projectId: string
     flowId?: string[]
     status?: number[]
+    statusClass?: WebhookStatusClass[]
     requestId?: string
     createdAfter?: string
     createdBefore?: string
@@ -62,6 +66,7 @@ export const webhookRequestInspectorService = (log: FastifyBaseLogger) => ({
                 method: params.method,
                 path: params.path,
                 headers: params.headers,
+                maskedHeaders: params.maskedHeaders,
                 queryParams: params.queryParams,
                 body: params.body,
                 clientIpPrefix: params.clientIpPrefix,
@@ -100,6 +105,17 @@ export const webhookRequestInspectorService = (log: FastifyBaseLogger) => ({
         }
         if (!isNil(params.status) && params.status.length > 0) {
             query = query.andWhere({ responseStatus: In(params.status) })
+        }
+        if (!isNil(params.statusClass) && params.statusClass.length > 0) {
+            const clauses: string[] = []
+            const parameters: Record<string, number> = {}
+            params.statusClass.forEach((statusClass, index) => {
+                const [lower, upper] = statusClassRange(statusClass)
+                clauses.push(`(capture."responseStatus" >= :lower${index} AND capture."responseStatus" <= :upper${index})`)
+                parameters[`lower${index}`] = lower
+                parameters[`upper${index}`] = upper
+            })
+            query = query.andWhere(`(${clauses.join(' OR ')})`, parameters)
         }
         if (!isNil(params.requestId) && params.requestId.length > 0) {
             query = query.andWhere({ requestId: params.requestId })
@@ -164,6 +180,17 @@ export const webhookRequestInspectorService = (log: FastifyBaseLogger) => ({
         return { copied: true, flowId: capture.flowId }
     },
 })
+
+const STATUS_CLASS_RANGES: Record<WebhookStatusClass, [number, number]> = {
+    '2xx': [200, 299],
+    '3xx': [300, 399],
+    '4xx': [400, 499],
+    '5xx': [500, 599],
+}
+
+function statusClassRange(statusClass: WebhookStatusClass): [number, number] {
+    return STATUS_CLASS_RANGES[statusClass]
+}
 
 function buildTriggerPayload(capture: WebhookRequestCapture): unknown {
     // testInput is assembled at capture time (masked headers, truncated preview, file URLs).

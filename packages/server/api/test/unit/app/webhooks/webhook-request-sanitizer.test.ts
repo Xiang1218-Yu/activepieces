@@ -11,7 +11,7 @@ import { WebhookRequestBodyKind } from '@activepieces/shared'
 
 describe('webhook request sanitizer', () => {
     it('masks credentials and signature headers but keeps plain headers', () => {
-        const { headers, sensitiveHeaders, connectionHeaders } = sanitizeHeaders({
+        const { headers, maskedHeaders } = sanitizeHeaders({
             authorization: 'Bearer secret-token',
             'x-slack-signature': 'v0=deadbeef',
             'svix-signature': 'whsec_xxx',
@@ -28,8 +28,16 @@ describe('webhook request sanitizer', () => {
         expect(headers['x-forwarded-for']).toBeUndefined()
         expect(headers['content-type']).toEqual(['application/json'])
         expect(headers['x-custom']).toEqual(['ok'])
-        expect(sensitiveHeaders).toEqual(expect.arrayContaining(['authorization', 'x-slack-signature', 'svix-signature', 'cookie']))
-        expect(connectionHeaders).toContain('x-forwarded-for')
+
+        // Names survive, values don't — with a mask reason.
+        const byName = Object.fromEntries(maskedHeaders.map((header) => [header.name, header.reason]))
+        expect(byName.authorization).toBe('SENSITIVE')
+        expect(byName['x-slack-signature']).toBe('SENSITIVE')
+        expect(byName['svix-signature']).toBe('SENSITIVE')
+        expect(byName.cookie).toBe('SENSITIVE')
+        expect(byName['x-forwarded-for']).toBe('CONNECTION')
+        expect(JSON.stringify(maskedHeaders)).not.toContain('secret-token')
+        expect(JSON.stringify(maskedHeaders)).not.toContain('deadbeef')
     })
 
     it('classifies known webhook signature header names', () => {

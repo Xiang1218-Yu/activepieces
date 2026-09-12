@@ -19,6 +19,7 @@ export class AddWebhookRequestCapture1842000000000 implements Migration {
                 "method" character varying(10) NOT NULL,
                 "path" character varying NOT NULL,
                 "headers" jsonb NOT NULL,
+                "maskedHeaders" jsonb NOT NULL DEFAULT '[]',
                 "queryParams" jsonb NOT NULL,
                 "body" jsonb NOT NULL,
                 "clientIpPrefix" character varying,

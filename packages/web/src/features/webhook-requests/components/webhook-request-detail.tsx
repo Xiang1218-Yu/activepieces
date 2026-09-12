@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   ClipboardCopy,
+  EyeOff,
   File as FileIcon,
   FlaskConical,
   ShieldAlert,
@@ -164,8 +165,39 @@ export const WebhookRequestDetail = ({
         />
       </div>
 
-      <Section title={t('Headers')} count={Object.keys(capture.headers).length}>
+      <Section
+        title={t('Headers')}
+        count={Object.keys(capture.headers).length}
+      >
         <MultiValueRecord record={capture.headers} />
+        {capture.maskedHeaders.length > 0 && (
+          <div className="mt-3 space-y-1 border-t pt-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {t('Masked headers (values not stored)')}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {capture.maskedHeaders.map((header, index) => (
+                <Badge
+                  key={`${header.name}-${index}`}
+                  variant="outline"
+                  className={
+                    header.reason === 'SENSITIVE'
+                      ? 'text-red-600 border-red-300 font-mono text-xs'
+                      : 'text-amber-600 border-amber-300 font-mono text-xs'
+                  }
+                  title={
+                    header.reason === 'SENSITIVE'
+                      ? t('Credential or signature header — value redacted')
+                      : t('Connection hop header — value redacted')
+                  }
+                >
+                  <EyeOff className="size-3 mr-1" />
+                  {header.name}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
       </Section>
 
       <Section

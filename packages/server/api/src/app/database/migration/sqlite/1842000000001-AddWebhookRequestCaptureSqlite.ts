@@ -16,6 +16,7 @@ export class AddWebhookRequestCaptureSqlite1842000000001 implements MigrationInt
                 "method" varchar(10) NOT NULL,
                 "path" varchar NOT NULL,
                 "headers" text NOT NULL,
+                "maskedHeaders" text NOT NULL DEFAULT '[]',
                 "queryParams" text NOT NULL,
                 "body" text NOT NULL,
                 "clientIpPrefix" varchar,

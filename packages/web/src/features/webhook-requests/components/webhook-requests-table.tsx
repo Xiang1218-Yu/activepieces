@@ -184,6 +184,24 @@ const ExpandedPreview = ({ capture }: { capture: WebhookRequestCapture }) => {
             {capture.headers[key]?.[0]}
           </div>
         ))}
+        {capture.maskedHeaders.length > 0 && (
+          <div className="flex flex-wrap gap-1 pt-1">
+            {capture.maskedHeaders.slice(0, 4).map((header, index) => (
+              <span
+                key={`${header.name}-${index}`}
+                className="inline-flex items-center gap-0.5 rounded border border-red-200 px-1 text-[10px] text-red-600 font-mono"
+              >
+                <ShieldAlert className="size-2.5" />
+                {header.name}
+              </span>
+            ))}
+            {capture.maskedHeaders.length > 4 && (
+              <span className="text-[10px] text-muted-foreground">
+                +{capture.maskedHeaders.length - 4}
+              </span>
+            )}
+          </div>
+        )}
       </PreviewColumn>
       <PreviewColumn title={t('Query')} count={queryKeys.length}>
         {queryKeys.slice(0, 6).map((key) => (

@@ -67,7 +67,7 @@ export type WebhookRequestCapturer = {
  * here is masked/truncated by the time it reaches the database; the raw request never leaves memory.
  */
 export function createWebhookRequestCapturer(request: FastifyRequest, flowId: string, requestId?: string): WebhookRequestCapturer {
-    const { headers: sanitizedHeaders } = sanitizeHeaders(request.headers)
+    const { headers: sanitizedHeaders, maskedHeaders } = sanitizeHeaders(request.headers)
     const queryParams = sanitizeQueryParams(request.query)
     const clientIpPrefix = maskClientIp(extractClientIp(request))
     const path = truncate(request.url.split('?')[0] ?? request.url, 500)
@@ -75,6 +75,9 @@ export function createWebhookRequestCapturer(request: FastifyRequest, flowId: st
     let owner: ResolvedOwner | undefined
     const multipartFields: MultipartFieldSummary[] = []
     const multipartFiles: MultipartFileAccumulator[] = []
+    // Byte count of multipart text field payloads, so the reported size covers the whole
+    // multipart body, not just uploaded files.
+    let multipartFieldBytes = 0
     const pendingStreams = new Set<Promise<void>>()
     let bodyRecorded = false
     let bodySummaryBuilder: (() => ReturnType<typeof summarizeBody>) | undefined
@@ -137,11 +140,13 @@ export function createWebhookRequestCapturer(request: FastifyRequest, flowId: st
         },
 
         recordMultipartField(part) {
+            const rawValue = typeof part.value === 'string' ? part.value : String(part.value ?? '')
+            multipartFieldBytes += Buffer.byteLength(rawValue)
             multipartFields.push(
                 sanitizeMultipartPart({
                     type: 'field',
                     fieldname: part.fieldname,
-                    value: typeof part.value === 'string' ? part.value : String(part.value ?? ''),
+                    value: rawValue,
                 }) as MultipartFieldSummary,
             )
         },
@@ -259,7 +264,7 @@ export function createWebhookRequestCapturer(request: FastifyRequest, flowId: st
             body = summarizeBody({
                 kind: WebhookRequestBodyKind.MULTIPART,
                 contentType: headerValue(request.headers['content-type']),
-                size: multipartFiles.reduce((total, file) => total + file.size, 0),
+                size: multipartFiles.reduce((total, file) => total + file.size, 0) + multipartFieldBytes,
                 maxBodyBytes,
                 files: multipartFiles.map(stripKind),
                 multipartPreview: buildMultipartPreview(),
@@ -282,6 +287,7 @@ export function createWebhookRequestCapturer(request: FastifyRequest, flowId: st
             method: request.method,
             path,
             headers: sanitizedHeaders,
+            maskedHeaders,
             queryParams,
             body,
             clientIpPrefix,

@@ -1,4 +1,4 @@
-import { WebhookRequestBodyKind, WebhookRequestBodySummary, WebhookRequestFileMetadata } from '@activepieces/shared'
+import { WebhookMaskedHeaderReason, WebhookRequestBodyKind, WebhookRequestBodySummary, WebhookRequestFileMetadata, WebhookMaskedHeader } from '@activepieces/shared'
 import { FastifyRequest } from 'fastify'
 
 const MASKED_VALUE = '***MASKED***'
@@ -93,31 +93,30 @@ function stringifyHeaderValue(value: unknown): string {
 
 export type SanitizedHeaders = {
     headers: Record<string, string[]>
-    sensitiveHeaders: string[]
-    connectionHeaders: string[]
+    // Names of headers whose values were dropped, kept so operators can verify what the
+    // sender actually included (e.g. an Authorization or x-forwarded-for header was present).
+    maskedHeaders: WebhookMaskedHeader[]
 }
 
 /**
  * Redacts sensitive header values entirely and truncates anything abnormally long.
- * Repeated headers are preserved as arrays.
+ * Repeated headers are preserved as arrays; masked names are recorded (without values).
  */
 export function sanitizeHeaders(rawHeaders: FastifyRequest['headers']): SanitizedHeaders {
     const headers: Record<string, string[]> = {}
-    const sensitiveHeaders: string[] = []
-    const connectionHeaders: string[] = []
+    const maskedHeaders: WebhookMaskedHeader[] = []
     for (const [name, value] of Object.entries(rawHeaders ?? {})) {
         const classification = classifyHeader(name)
-        if (classification === 'SENSITIVE') {
-            sensitiveHeaders.push(name)
-            continue
-        }
-        if (classification === 'CONNECTION') {
-            connectionHeaders.push(name)
+        if (classification === 'SENSITIVE' || classification === 'CONNECTION') {
+            maskedHeaders.push({
+                name,
+                reason: classification as WebhookMaskedHeaderReason,
+            })
             continue
         }
         headers[name] = normalizeHeaderValues(value).map((entry) => truncate(entry, MAX_HEADER_VALUE_LENGTH))
     }
-    return { headers, sensitiveHeaders, connectionHeaders }
+    return { headers, maskedHeaders }
 }
 
 /**

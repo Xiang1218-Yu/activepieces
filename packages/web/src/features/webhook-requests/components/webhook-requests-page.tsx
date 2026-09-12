@@ -22,6 +22,7 @@ import { webhookRequestHooks } from '../hooks/webhook-request-hooks';
 
 const STATUS_OPTIONS = [
   { label: '2xx', value: '2xx' },
+  { label: '3xx', value: '3xx' },
   { label: '4xx', value: '4xx' },
   { label: '5xx', value: '5xx' },
   { label: '200 OK', value: '200' },
@@ -32,11 +33,7 @@ const STATUS_OPTIONS = [
   { label: '500 Error', value: '500' },
 ];
 
-const STATUS_CLASS: Record<string, number[]> = {
-  '2xx': [200, 201, 202, 204],
-  '4xx': [400, 401, 403, 404, 405, 409, 410, 413],
-  '5xx': [500, 502, 503, 504],
-};
+const STATUS_CLASS_VALUES = new Set(['2xx', '3xx', '4xx', '5xx']);
 
 const PAGE_SIZE = 25;
 
@@ -60,22 +57,26 @@ export const WebhookRequestsPage = () => {
   }, [flows]);
 
   const flowId = searchParams.get('flowId') ?? undefined;
-  const statusParam = searchParams.get('statusClass') ?? undefined;
+  const statusFilter = searchParams.get('statusFilter') ?? undefined;
   const requestId = searchParams.get('requestId') ?? undefined;
   const createdAfter = searchParams.get('createdAfter') ?? undefined;
   const createdBefore = searchParams.get('createdBefore') ?? undefined;
   const cursor = searchParams.get('cursor') ?? undefined;
 
-  const statuses = statusParam
-    ? (STATUS_CLASS[statusParam] ?? [Number(statusParam)]).filter(
-        (value) => !Number.isNaN(value),
-      )
-    : undefined;
+  const statusClass =
+    statusFilter && STATUS_CLASS_VALUES.has(statusFilter)
+      ? ([statusFilter] as ('2xx' | '3xx' | '4xx' | '5xx')[])
+      : undefined;
+  const exactStatus =
+    statusFilter && !STATUS_CLASS_VALUES.has(statusFilter)
+      ? Number(statusFilter)
+      : undefined;
 
   const { data, isLoading, isError, refetch } = webhookRequestHooks.useCaptures({
     projectId,
     flowId: flowId ? [flowId] : undefined,
-    status: statuses,
+    status: exactStatus && !Number.isNaN(exactStatus) ? [exactStatus] : undefined,
+    statusClass,
     requestId: requestId || undefined,
     createdAfter,
     createdBefore,
@@ -141,8 +142,8 @@ export const WebhookRequestsPage = () => {
         </Select>
 
         <Select
-          value={statusParam ?? 'all'}
-          onValueChange={(value) => updateParam('statusClass', value)}
+          value={statusFilter ?? 'all'}
+          onValueChange={(value) => updateParam('statusFilter', value)}
         >
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder={t('All statuses')} />
@@ -199,7 +200,7 @@ export const WebhookRequestsPage = () => {
           </Button>
         </form>
 
-        {(flowId || statusParam || requestId || createdAfter || createdBefore) && (
+        {(flowId || statusFilter || requestId || createdAfter || createdBefore) && (
           <Button
             variant="ghost"
             size="sm"
