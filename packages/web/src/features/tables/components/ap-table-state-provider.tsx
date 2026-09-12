@@ -1,17 +1,27 @@
 import { isNil } from '@activepieces/core-utils';
-import { Field, Table, PopulatedRecord } from '@activepieces/shared';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Field,
+  PopulatedRecord,
+  Table,
+  TableView,
+  TableViewCondition,
+  TableViewConditionIssue,
+  TableViewConfig,
+} from '@activepieces/shared';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AxiosError } from 'axios';
 import { t } from 'i18next';
 import { FileX } from 'lucide-react';
 import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useStore } from 'zustand';
 
 import { RouteLoadingBar } from '@/components/custom/route-loading-bar';
@@ -26,11 +36,16 @@ import { cn } from '@/lib/utils';
 
 import { fieldsApi } from '../api/fields-api';
 import { recordsApi } from '../api/records-api';
+import { tableViewsApi } from '../api/table-views-api';
 import { tablesApi } from '../api/tables-api';
+import { tableViewUtils } from '../utils/table-view-utils';
 
 const TableContext = createContext<ApTableStore | null>(null);
 const TableRefreshContext = createContext<(() => Promise<void>) | null>(null);
 const TableLockContext = createContext<TableLockContextValue | null>(null);
+const TableViewContext = createContext<TableViewContextValue | null>(null);
+
+export const DEFAULT_TABLE_VIEW_NAME = 'Default view';
 
 export const TableStateProviderWithTable = ({
   children,
@@ -48,10 +63,188 @@ export const TableStateProviderWithTable = ({
   );
   return (
     <TableContext.Provider value={tableStoreRef.current}>
-      {children}
+      <TableViewProvider table={table} fields={fields}>
+        {children}
+      </TableViewProvider>
     </TableContext.Provider>
   );
 };
+
+function TableViewProvider({
+  table,
+  fields,
+  children,
+}: {
+  table: Table;
+  fields: Field[];
+  children: React.ReactNode;
+}) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
+  const viewId = searchParams.get('viewId');
+  const queryKey = ['table-views', table.id];
+
+  const { data: views = [] } = useQuery({
+    queryKey,
+    queryFn: () => tableViewsApi.list({ tableId: table.id }),
+    staleTime: 0,
+    gcTime: 0,
+  });
+
+  const selectedView = useMemo(
+    () => views.find((view) => view.id === viewId) ?? null,
+    [viewId, views],
+  );
+  const [draftConfig, setDraftConfig] = useState<TableViewConfig | null>(null);
+  const [draftName, setDraftName] = useState('');
+  const [conflictMessage, setConflictMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraftConfig(
+      selectedView
+        ? JSON.parse(JSON.stringify(selectedView.config))
+        : tableViewUtils.defaultTableViewConfig(),
+    );
+    setDraftName(selectedView?.name ?? DEFAULT_TABLE_VIEW_NAME);
+    setConflictMessage(null);
+  }, [selectedView, viewId]);
+
+  const refreshViews = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey });
+  }, [queryClient, queryKey]);
+
+  const createViewMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const config = draftConfig ?? tableViewUtils.defaultTableViewConfig();
+      return tableViewsApi.create({
+        projectId: table.projectId,
+        tableId: table.id,
+        name,
+        config,
+      });
+    },
+    onSuccess: async (view) => {
+      await refreshViews();
+      setSearchParams({ viewId: view.id });
+    },
+  });
+
+  const saveViewMutation = useMutation({
+    mutationFn: async (name?: string) => {
+      if (!selectedView || !draftConfig) {
+        return null;
+      }
+      return tableViewsApi.update(selectedView.id, {
+        projectId: table.projectId,
+        name: name ?? draftName,
+        config: draftConfig,
+        expectedVersion: selectedView.version,
+      });
+    },
+    onSuccess: async (view) => {
+      if (view) {
+        queryClient.setQueryData(queryKey, (currentViews: TableView[] = []) =>
+          currentViews.map((currentView) =>
+            currentView.id === view.id ? view : currentView,
+          ),
+        );
+        setDraftName(view.name);
+      }
+      setConflictMessage(null);
+    },
+    onError: (error: AxiosError) => {
+      if (error.response?.status === 409) {
+        setConflictMessage(t('This view changed in another session. Reload the latest version before saving.'));
+      }
+    },
+  });
+
+  const deleteViewMutation = useMutation({
+    mutationFn: async (id: string) => tableViewsApi.delete(id),
+    onSuccess: async (_, id) => {
+      queryClient.setQueryData(queryKey, (currentViews: TableView[] = []) =>
+        currentViews.filter((view) => view.id !== id),
+      );
+      if (id === viewId) {
+        setSearchParams({});
+      }
+    },
+  });
+
+  const updateConfig = useCallback((updater: (config: TableViewConfig) => TableViewConfig) => {
+    setDraftConfig((currentConfig) =>
+      currentConfig ? updater(currentConfig) : currentConfig,
+    );
+    setConflictMessage(null);
+  }, []);
+
+  const selectView = useCallback(
+    (nextViewId: string | null) => {
+      setSearchParams(nextViewId ? { viewId: nextViewId } : {});
+    },
+    [setSearchParams],
+  );
+
+  const reloadView = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey });
+    setConflictMessage(null);
+  }, [queryClient, queryKey]);
+
+  const config = draftConfig ?? tableViewUtils.defaultTableViewConfig();
+  const savedConfig = selectedView?.config ?? tableViewUtils.defaultTableViewConfig();
+  const isDirty =
+    !!selectedView &&
+    (JSON.stringify(config) !== JSON.stringify(savedConfig) ||
+      draftName !== selectedView.name);
+  const invalidConditions = useMemo(() => config.filters.flatMap((condition) => {
+    const field = fields.find((item) => item.id === condition.fieldId);
+    if (!field) {
+      return [{ condition, issue: TableViewConditionIssue.FIELD_DELETED }];
+    }
+    if (field.type !== condition.fieldType) {
+      return [{ condition, issue: TableViewConditionIssue.FIELD_TYPE_CHANGED }];
+    }
+    return [];
+  }), [config.filters, fields]);
+
+  const value = useMemo<TableViewContextValue>(
+    () => ({
+      views,
+      selectedView,
+      config,
+      draftName,
+      isDirty,
+      isSaving: saveViewMutation.isPending,
+      conflictMessage,
+      invalidConditions,
+      setDraftName,
+      updateConfig,
+      selectView,
+      createView: (name: string) => createViewMutation.mutateAsync(name),
+      saveView: (name?: string) => saveViewMutation.mutateAsync(name),
+      deleteView: (id: string) => deleteViewMutation.mutateAsync(id),
+      reloadView,
+    }),
+    [
+      views,
+      selectedView,
+      config,
+      draftName,
+      isDirty,
+      saveViewMutation.isPending,
+      conflictMessage,
+      invalidConditions,
+      updateConfig,
+      selectView,
+      createViewMutation,
+      saveViewMutation,
+      deleteViewMutation,
+      reloadView,
+    ],
+  );
+
+  return <TableViewContext.Provider value={value}>{children}</TableViewContext.Provider>;
+}
 
 export function ApTableStateProvider({
   children,
@@ -199,6 +392,14 @@ export function useTableLock() {
   return lock;
 }
 
+export function useTableView() {
+  const view = useContext(TableViewContext);
+  if (!view) {
+    throw new Error('Table view context not found');
+  }
+  return view;
+}
+
 export function useOptionalTableStore() {
   const tableStore = useContext(TableContext);
   return tableStore ?? null;
@@ -227,3 +428,26 @@ function TableLockProvider({
 }
 
 type TableLockContextValue = ReturnType<typeof useResourceLock>;
+
+type TableViewContextValue = {
+  views: TableView[];
+  selectedView: TableView | null;
+  config: TableViewConfig;
+  draftName: string;
+  isDirty: boolean;
+  isSaving: boolean;
+  conflictMessage: string | null;
+  invalidConditions: {
+    condition: TableViewCondition;
+    issue: TableViewConditionIssue;
+  }[];
+  setDraftName: (name: string) => void;
+  updateConfig: (
+    updater: (config: TableViewConfig) => TableViewConfig,
+  ) => void;
+  selectView: (viewId: string | null) => void;
+  createView: (name: string) => Promise<TableView>;
+  saveView: (name?: string) => Promise<unknown>;
+  deleteView: (id: string) => Promise<void>;
+  reloadView: () => Promise<void>;
+};

@@ -520,6 +520,93 @@ describe('Table API', () => {
             expect(recordsResponse?.json().data.length).toBe(0)
         })
     })
+
+    describeWithAuth('Table views', () => app!, (setup) => {
+        it('saves a view, reports invalid conditions, and rejects a stale update', async () => {
+            const ctx = await setup()
+            const tableResponse = await ctx.post('/v1/tables', {
+                projectId: ctx.project.id,
+                name: 'View Table',
+            })
+            const table = tableResponse.json()
+            const fieldResponse = await ctx.post('/v1/fields', {
+                projectId: ctx.project.id,
+                tableId: table.id,
+                name: 'Email',
+                type: FieldType.TEXT,
+            })
+            const field = fieldResponse.json()
+            const config = {
+                filters: [{
+                    fieldId: field.id,
+                    fieldName: field.name,
+                    fieldType: FieldType.TEXT,
+                    operator: 'co',
+                    value: '@example.com',
+                }],
+                sorts: [{ fieldId: field.id, direction: 'ASC' }],
+                hiddenFieldIds: [field.id],
+                pagination: { page: 2, pageSize: 50 },
+            }
+
+            const createResponse = await ctx.post('/v1/table-views', {
+                projectId: ctx.project.id,
+                tableId: table.id,
+                name: 'Missing email',
+                config,
+            })
+            expect(createResponse.statusCode).toBe(StatusCodes.CREATED)
+            const view = createResponse.json()
+            expect(view.version).toBe(0)
+            expect(view.config.hiddenFieldIds).toEqual([field.id])
+            expect(view.config.pagination.page).toBe(2)
+            expect(view.invalidConditions).toEqual([])
+
+            const deletedFieldResponse = await ctx.delete(`/v1/fields/${field.id}`)
+            expect(deletedFieldResponse.statusCode).toBe(StatusCodes.NO_CONTENT)
+
+            const deletedFieldViewResponse = await ctx.get(`/v1/table-views/${view.id}`)
+            const deletedFieldView = deletedFieldViewResponse.json()
+            expect(deletedFieldView.invalidConditions).toHaveLength(1)
+            expect(deletedFieldView.invalidConditions[0].issue).toBe('FIELD_DELETED')
+
+            await db.save('field', field)
+
+            await db.update('field', field.id, {
+                type: FieldType.NUMBER,
+            })
+
+            const staleResponse = await ctx.post(`/v1/table-views/${view.id}`, {
+                projectId: ctx.project.id,
+                expectedVersion: 99,
+                config,
+            })
+            expect(staleResponse.statusCode).toBe(StatusCodes.CONFLICT)
+
+            const getResponse = await ctx.get(`/v1/table-views/${view.id}`)
+            const refreshedView = getResponse.json()
+            expect(refreshedView.invalidConditions).toHaveLength(1)
+            expect(refreshedView.invalidConditions[0].issue).toBe('FIELD_TYPE_CHANGED')
+
+            const repairedConfig = {
+                ...config,
+                filters: [{
+                    ...config.filters[0],
+                    fieldType: FieldType.NUMBER,
+                    operator: 'gt',
+                    value: '0',
+                }],
+            }
+            const repairResponse = await ctx.post(`/v1/table-views/${view.id}`, {
+                projectId: ctx.project.id,
+                expectedVersion: 0,
+                config: repairedConfig,
+            })
+            expect(repairResponse.statusCode).toBe(StatusCodes.OK)
+            expect(repairResponse.json().version).toBe(1)
+            expect(repairResponse.json().invalidConditions).toEqual([])
+        })
+    })
 })
 
 async function createAndSaveTable(ctx: TestContext) {

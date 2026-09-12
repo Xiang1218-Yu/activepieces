@@ -13,10 +13,13 @@ import {
   useTableState,
   useTableLock,
   useTableColumns,
+  useTableView,
   mapRecordsToRows,
   Row,
   ROW_HEIGHT_MAP,
   RowHeight,
+  TableViewsBar,
+  tableViewUtils,
 } from '@/features/tables';
 import { useAuthorization } from '@/hooks/authorization-hooks';
 import { flagsHooks } from '@/hooks/flags-hooks';
@@ -53,6 +56,7 @@ const ApTableEditorPage = () => {
   // the lock lives in the table state provider, above the take-over refresh
   // remount boundary, so refreshing never releases the just-acquired lock
   const { lockedBy, takeOver } = useTableLock();
+  const { config, updateConfig } = useTableView();
 
   useEffect(() => {
     setLockedByOtherUser(!!lockedBy);
@@ -76,13 +80,26 @@ const ApTableEditorPage = () => {
       agentRunId: null,
       values: [],
     });
+    const nextRowCount = records.length + 1;
+    const nextPage = Math.max(
+      1,
+      Math.ceil(nextRowCount / config.pagination.pageSize),
+    );
+    const nextRowIndex = nextRowCount - 1 - (nextPage - 1) * config.pagination.pageSize;
+    updateConfig((currentConfig) => ({
+      ...currentConfig,
+      pagination: {
+        ...currentConfig.pagination,
+        page: nextPage,
+      },
+    }));
     requestAnimationFrame(() => {
       gridRef.current?.scrollToCell({
-        rowIdx: records.length,
+        rowIdx: nextRowIndex,
         idx: 0,
       });
       setSelectedCell({
-        rowIdx: records.length,
+        rowIdx: nextRowIndex,
         columnIdx: 1,
       });
     });
@@ -92,9 +109,10 @@ const ApTableEditorPage = () => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
         selectedCell &&
-        !(event.target as HTMLElement).closest(
+        !(event.target instanceof Element) ||
+        !(event.target.closest(
           `#editable-cell-${selectedCell.rowIdx}-${selectedCell.columnIdx}`,
-        )
+        ))
       ) {
         setSelectedCell(null);
       }
@@ -105,7 +123,17 @@ const ApTableEditorPage = () => {
   }, [selectedCell]);
 
   const columns = useTableColumns(createEmptyRecord);
-  const rows = mapRecordsToRows(records, fields);
+  const allRows = mapRecordsToRows(records, fields);
+  const viewRows = tableViewUtils.applyTableView({
+    records: allRows,
+    fields: fields.map((field) => ({
+      id: field.uuid,
+      name: field.name,
+      type: field.type,
+    })),
+    config,
+  });
+  const rows = tableViewUtils.getPagedRecords(viewRows, config);
 
   const handleColumnsReorder = (sourceKey: string, targetKey: string) => {
     const sourceIndex = fields.findIndex((field) => field.uuid === sourceKey);
@@ -131,6 +159,7 @@ const ApTableEditorPage = () => {
       </div>
 
       <div className="flex w-full flex-col flex-1 min-h-0">
+        <TableViewsBar />
         <div className="flex-1 flex flex-col min-h-0">
           <div className="flex-1 min-h-0">
             <DataGrid

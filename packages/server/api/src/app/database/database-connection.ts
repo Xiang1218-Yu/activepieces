@@ -56,6 +56,7 @@ import { StoreEntryEntity } from '../store-entry/store-entry-entity'
 import { FieldEntity } from '../tables/field/field.entity'
 import { CellEntity } from '../tables/record/cell.entity'
 import { RecordEntity } from '../tables/record/record.entity'
+import { TableViewEntity } from '../tables/table-view/table-view.entity'
 import { TableWebhookEntity } from '../tables/table/table-webhook.entity'
 import { TableEntity } from '../tables/table/table.entity'
 import { TemplateEntity } from '../template/template.entity'
@@ -102,6 +103,7 @@ function getEntities(): EntitySchema<unknown>[] {
         FieldEntity,
         RecordEntity,
         CellEntity,
+        TableViewEntity,
         TableWebhookEntity,
         UserIdentityEntity,
         McpServerEntity,

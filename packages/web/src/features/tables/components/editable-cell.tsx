@@ -23,6 +23,8 @@ type EditableCellProps = {
   onClick?: () => void;
   column: CalculatedColumn<Row, { id: string }>;
   rowIdx: number;
+  recordIndex: number;
+  fieldIndex: number;
   disabled?: boolean;
   locked?: boolean;
 };
@@ -58,6 +60,8 @@ export function EditableCell({
   field,
   column,
   rowIdx,
+  recordIndex,
+  fieldIndex,
   onClick,
   locked = false,
   value,
@@ -150,8 +154,8 @@ export function EditableCell({
     >
       <ErrorBoundary fallback={<div>Error</div>}>
         <CellProvider
-          rowIdx={rowIdx}
-          columnIdx={column.idx - 1}
+          rowIdx={recordIndex}
+          columnIdx={fieldIndex}
           fieldType={field.type}
           value={value ?? ''}
           handleCellChange={() => {}}

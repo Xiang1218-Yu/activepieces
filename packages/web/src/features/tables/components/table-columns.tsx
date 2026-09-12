@@ -7,11 +7,11 @@ import { Column, RenderCellProps } from 'react-data-grid';
 import { useAuthorization } from '@/hooks/authorization-hooks';
 import { flagsHooks } from '@/hooks/flags-hooks';
 
-import { ClientRecordData } from '../stores/store/ap-tables-client-state';
+import { ClientField, ClientRecordData } from '../stores/store/ap-tables-client-state';
 import { Row } from '../types/types';
 
 import { ApFieldHeader } from './ap-field-header';
-import { useTableState } from './ap-table-state-provider';
+import { useTableState, useTableView } from './ap-table-state-provider';
 import { EditableCell } from './editable-cell';
 import { NewFieldPopup } from './new-field-popup';
 import { SelectCell, SelectHeaderCell } from './select-column';
@@ -27,6 +27,10 @@ export function useTableColumns(createEmptyRecord: () => void) {
   );
 
   const lockedByOtherUser = useTableState((state) => state.lockedByOtherUser);
+  const { config } = useTableView();
+  const visibleFields = fields.filter(
+    (field) => !config.hiddenFieldIds.includes(field.uuid),
+  );
   const userHasTableWritePermission = useAuthorization().checkAccess(
     Permission.WRITE_TABLE,
   );
@@ -73,7 +77,9 @@ export function useTableColumns(createEmptyRecord: () => void) {
         />
       ),
     },
-    ...(fields.map((field, index) => ({
+    ...(visibleFields.map((field) => {
+      const index = fields.findIndex((tableField) => tableField.uuid === field.uuid);
+      return ({
       key: field.uuid,
       minWidth: 207,
       width: 207,
@@ -94,6 +100,8 @@ export function useTableColumns(createEmptyRecord: () => void) {
           row={row}
           column={column}
           rowIdx={rowIdx}
+          recordIndex={row.recordIndex}
+          fieldIndex={index}
           disabled={!canEdit}
           locked={row.locked}
           onClick={() => {
@@ -106,7 +114,8 @@ export function useTableColumns(createEmptyRecord: () => void) {
       renderSummaryCell: () => (
         <AddRecordButton handleClick={createEmptyRecord} />
       ),
-    })) ?? []),
+      });
+    })),
   ];
 
   if (isAllowedToCreateField) {
@@ -117,12 +126,13 @@ export function useTableColumns(createEmptyRecord: () => void) {
 
 export function mapRecordsToRows(
   records: ClientRecordData[],
-  fields: any[],
+  fields: ClientField[],
 ): Row[] {
   if (!records || records.length === 0) return [];
-  return records.map((record: ClientRecordData) => {
+  return records.map((record: ClientRecordData, index: number) => {
     const row: Row = {
       id: record.uuid,
+      recordIndex: index,
       agentRunId: record.agentRunId ?? null,
       locked: !isNil(record.agentRunId),
     };

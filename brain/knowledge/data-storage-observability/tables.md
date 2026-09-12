@@ -8,6 +8,7 @@ A built-in relational database inside Activepieces: users store structured data 
 
 ### Entities & services
 - **Table** → **Field** (column) → **Record** (row) → **Cell** (value at record×field, stored as VARCHAR). All scoped to a project.
+- **TableView** stores a table editor presentation only: filters, sorts, hidden field ids, and page/page size. It never changes record APIs, table data, or Flow reads; stale field references are retained so users can repair them after deletion or type changes.
 - **FieldType**: `TEXT`, `NUMBER`, `DATE`, `DATETIME`, `STATIC_DROPDOWN`. Field limit `AP_MAX_FIELDS_PER_TABLE` (default 100), enforced by `field.validateCount({ insertCount })`.
 - **position** (canonical term; avoid: order, displayOrder, index) — 0-based column order within a table. Fields list `position ASC, created ASC`, and `table.exportTable()` follows the same order.
 - **TableWebhook**: links a table event to a flow. Events: `RECORD_CREATED`, `RECORD_UPDATED`, `RECORD_DELETED`.
@@ -17,6 +18,7 @@ A built-in relational database inside Activepieces: users store structured data 
 - After record create/update/delete, `recordSideEffects.handleRecordsEvent()` finds matching TableWebhooks and triggers their linked flows with the record as payload.
 - The **Tables piece** (`packages/pieces/core/tables/`) gives flows triggers (New/Updated/Deleted Record) and actions (Create/Get/Find/Update/Delete Record, Clear Table), calling the internal API with a Bearer token.
 - RBAC: `READ_TABLE` / `WRITE_TABLE` via `securityAccess.project(...)`. VIEWER gets read only. `ENGINE`/`SERVICE` principals skip the role check.
+- Table views are mounted at `/v1/table-views` and use the same `READ_TABLE` / `WRITE_TABLE` permissions as their table. Updates carry `expectedVersion`; the SQL update condition includes the old version, so concurrent saves return a 409 instead of silently overwriting each other.
 - Column reorder: `POST /v1/fields/reorder` takes `{ tableId, fieldIds }` (the full ordered id list the client already holds) and resequences positions to `0..n-1` in a single `UPDATE … unnest(fieldIds) WITH ORDINALITY` scoped by `projectId + tableId`, so foreign or stale ids are no-ops. Creates default to `MAX(position)+1` (append); imports pass the source array index so order never depends on insert timing. In the UI this is react-data-grid native column dragging (`draggable` columns + `onColumnsReorder`).
 
 ### Gotchas
@@ -35,11 +37,13 @@ Entry point: `tablesModule`, registered in `packages/server/api/src/app/app.ts` 
 
 - `packages/server/api/src/app/tables/tables.module.ts` — module registration and route prefixes
 - `packages/server/api/src/app/tables/table/` — table service (CRUD, export, webhook management), controller, Table and TableWebhook entities
+- `packages/server/api/src/app/tables/table-view/` — saved table editor views, optimistic version updates, and stale-condition diagnostics
 - `packages/server/api/src/app/tables/field/` — field service, controller, Field entity
 - `packages/server/api/src/app/tables/record/` — record service (CRUD, bulk ops), controller, Record and Cell entities, record side effects that fire TableWebhook flows
 - `packages/core/shared/src/lib/automation/tables/` — shared schemas for Table, Field, Record, Cell, TableWebhook, plus request/response DTOs
 - `packages/web/src/app/routes/tables/id/index.tsx` — the table editor page, react-data-grid based
 - `packages/web/src/features/tables/` — editor components, React Query hooks, client/server state stores, API calls
+- `packages/web/src/features/tables/components/table-views-bar.tsx` — saved view selection, filters, sorts, hidden columns, pagination, and conflict recovery
 - `packages/pieces/core/tables/` — the Tables piece: triggers and actions flows use to read and write tables
 
-Paths verified 2026-07-17.
+Paths verified 2026-09-12.

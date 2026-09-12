@@ -5,11 +5,13 @@ export { ApTableHeader } from './components/ap-table-header';
 export {
   useTableState,
   useTableLock,
+  useTableView,
   useRefreshTableState,
   ApTableStateProvider,
 } from './components/ap-table-state-provider';
 export { ImportTableDialog } from './components/import-table-dialog';
 export { mapRecordsToRows, useTableColumns } from './components/table-columns';
+export { TableViewsBar } from './components/table-views-bar';
 export { tableHooks } from './hooks/table-hooks';
 export { createApTableStore } from './stores/store/ap-tables-client-state';
 export type {
@@ -19,3 +21,4 @@ export type {
 export { ROW_HEIGHT_MAP, RowHeight } from './types/types';
 export type { Row } from './types/types';
 export { tablesUtils } from './utils/utils';
+export { tableViewUtils } from './utils/table-view-utils';

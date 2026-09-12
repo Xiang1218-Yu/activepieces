@@ -1,5 +1,6 @@
 export type Row = {
   id: string;
+  recordIndex: number;
   agentRunId: string | null;
   locked: boolean;
   [key: string]: any;
