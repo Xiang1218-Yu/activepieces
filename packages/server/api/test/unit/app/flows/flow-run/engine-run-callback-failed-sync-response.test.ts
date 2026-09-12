@@ -110,4 +110,28 @@ describe('uploadRunLog answering a waiting sync request', () => {
         expect(mockRunsMetadataAdd).toHaveBeenCalledTimes(1)
         expect(mockRunsMetadataAdd.mock.calls[0][0]).toMatchObject({ id: 'run-1', status: FlowRunStatus.FAILED })
     })
+
+    it('threads replayOfRunId into the run metadata update', async () => {
+        await engineRunCallbackService(noopLogger as never).uploadRunLog({
+            projectId: 'proj-1',
+            request: {
+                runId: 'run-1',
+                projectId: 'proj-1',
+                status: FlowRunStatus.SUCCEEDED,
+                replayOfRunId: 'source-run-id-0000000001',
+            },
+        })
+
+        expect(mockRunsMetadataAdd).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'run-1', replayOfRunId: 'source-run-id-0000000001' }),
+        )
+    })
+
+    it('leaves replayOfRunId undefined for non-replay status reports', async () => {
+        await uploadRunLog(FlowRunStatus.SUCCEEDED)
+
+        expect(mockRunsMetadataAdd).toHaveBeenCalledWith(
+            expect.not.objectContaining({ replayOfRunId: expect.anything() }),
+        )
+    })
 })

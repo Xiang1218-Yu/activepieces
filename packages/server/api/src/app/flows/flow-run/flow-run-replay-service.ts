@@ -13,123 +13,150 @@ const appConnectionRepo = repoFactory(AppConnectionEntity)
 
 export const flowRunReplayService = (log: FastifyBaseLogger) => ({
     async prepare({ sourceRun, projectId }: PrepareParams): Promise<PrepareResult> {
-        const flowVersion = await flowVersionService(log).getOneOrThrow(sourceRun.flowVersionId)
-
-        const allSteps = flowStructureUtil.getAllSteps(flowVersion.trigger)
-        const connectionStatusByExternalId = await loadConnectionStatuses({
-            steps: allSteps,
-            projectId,
-        })
-        const platformId = await projectService(log).getPlatformId(projectId)
-        const unavailablePieces = await findUnavailablePieces({
-            steps: allSteps,
-            projectId,
-            platformId,
-            log,
-        })
-
-        const triggerStep = sourceRun.steps?.[flowVersion.trigger.name]
-        const { blockers: triggerBlockers } = await resolveTriggerOutput({
-            triggerStep,
-            triggerName: flowVersion.trigger.name,
-            triggerDisplayName: flowVersion.trigger.displayName,
-            projectId,
-            log,
-        })
-
-        const replaySteps = allSteps.map((step, index) => {
-            const blockers: FlowRunReplayBlocker[] = []
-            const pieceName = 'pieceName' in step.settings ? step.settings.pieceName : undefined
-            const pieceVersion = 'pieceVersion' in step.settings ? step.settings.pieceVersion : undefined
-            const connectionExternalId = getConnectionExternalId(step)
-            const connectionStatus = connectionExternalId
-                ? connectionStatusByExternalId.get(connectionExternalId)
-                : undefined
-
-            if (index === 0) {
-                blockers.push(...triggerBlockers)
-            }
-            if (connectionExternalId && isNil(connectionStatus)) {
-                blockers.push({
-                    code: FlowRunReplayBlockerCode.CONNECTION_MISSING,
-                    stepName: step.name,
-                    stepDisplayName: step.displayName,
-                    connectionExternalId,
-                })
-            }
-            else if (connectionExternalId && connectionStatus !== AppConnectionStatus.ACTIVE) {
-                blockers.push({
-                    code: FlowRunReplayBlockerCode.CONNECTION_ERROR,
-                    stepName: step.name,
-                    stepDisplayName: step.displayName,
-                    connectionExternalId,
-                })
-            }
-            if (pieceName && pieceVersion && unavailablePieces.has(`${pieceName}@${pieceVersion}`)) {
-                blockers.push({
-                    code: FlowRunReplayBlockerCode.PIECE_UNAVAILABLE,
-                    stepName: step.name,
-                    stepDisplayName: step.displayName,
-                    pieceName,
-                    pieceVersion,
-                })
-            }
-
-            const replayStep: FlowRunReplayStep = {
-                name: step.name,
-                displayName: step.displayName,
-                order: index + 1,
-                isTrigger: index === 0,
-                blockers,
-                ...(pieceName ? { pieceName } : {}),
-                ...(pieceVersion ? { pieceVersion } : {}),
-                ...(connectionExternalId ? { connectionExternalId } : {}),
-                ...(connectionStatus ? { connectionStatus } : {}),
-            }
-            return replayStep
-        })
-
-        const blockers = replaySteps.flatMap(step => step.blockers)
+        const preparation = await buildPreparation({ sourceRun, projectId, log })
         return {
             sourceRunId: sourceRun.id,
             flowId: sourceRun.flowId,
-            flowVersionId: flowVersion.id,
-            flowDisplayName: flowVersion.displayName,
+            flowVersionId: preparation.flowVersion.id,
+            flowDisplayName: preparation.flowVersion.displayName,
             sourceRunCreated: sourceRun.created,
-            ...(flowVersion.trigger.type === FlowTriggerType.PIECE ? { triggerType: FlowTriggerType.PIECE } : {}),
-            steps: replaySteps,
-            blockers,
-            canReplay: blockers.length === 0,
+            ...(preparation.flowVersion.trigger.type === FlowTriggerType.PIECE ? { triggerType: FlowTriggerType.PIECE } : {}),
+            steps: preparation.steps,
+            blockers: preparation.blockers,
+            canReplay: preparation.blockers.length === 0,
         }
     },
 
-    async resolveTriggerPayload({ sourceRun, projectId }: PrepareParams): Promise<ResolveTriggerPayloadResult> {
-        const flowVersion = await flowVersionService(log).getOneOrThrow(sourceRun.flowVersionId)
-        const triggerStep = sourceRun.steps?.[flowVersion.trigger.name]
-        const { output, blockers, executeTrigger } = await resolveTriggerOutput({
-            triggerStep,
-            triggerName: flowVersion.trigger.name,
-            triggerDisplayName: flowVersion.trigger.displayName,
-            projectId,
-            log,
-        })
-        if (blockers.length > 0 || isNil(output)) {
+    // Gate used by POST /:id/replay. Runs the exact same connection, piece and input-file
+    // validation as prepare(), so the create endpoint can never enqueue a run the workbench
+    // would have flagged. Throws VALIDATION (400) carrying the first blocker when anything is wrong.
+    async resolveReplayRun({ sourceRun, projectId }: PrepareParams): Promise<ResolvedReplayRun> {
+        const preparation = await buildPreparation({ sourceRun, projectId, log })
+        if (preparation.blockers.length > 0) {
             throw new ActivepiecesError({
                 code: ErrorCode.VALIDATION,
                 params: {
-                    message: blockers[0]?.code === FlowRunReplayBlockerCode.TRIGGER_INPUT_FILE_EXPIRED
-                        ? 'A file attached to the original trigger input has expired, so this run cannot be replayed.'
-                        : 'The original trigger input is no longer available; run replay preparation to see the details.',
+                    message: blockerMessage(preparation.blockers[0]),
+                },
+            })
+        }
+        if (isNil(preparation.payload)) {
+            throw new ActivepiecesError({
+                code: ErrorCode.VALIDATION,
+                params: {
+                    message: blockerMessage({ code: FlowRunReplayBlockerCode.TRIGGER_PAYLOAD_MISSING }),
                 },
             })
         }
         return {
-            payload: output,
-            flowVersion,
-            executeTrigger,
+            payload: preparation.payload,
+            flowVersion: preparation.flowVersion,
+            executeTrigger: preparation.executeTrigger,
         }
     },
 })
+
+async function buildPreparation(params: BuildPreparationParams): Promise<ReplayPreparation> {
+    const { sourceRun, projectId, log } = params
+    const flowVersion = await flowVersionService(log).getOneOrThrow(sourceRun.flowVersionId)
+
+    const allSteps = flowStructureUtil.getAllSteps(flowVersion.trigger)
+    const connectionStatusByExternalId = await loadConnectionStatuses({
+        steps: allSteps,
+        projectId,
+    })
+    const platformId = await projectService(log).getPlatformId(projectId)
+    const unavailablePieces = await findUnavailablePieces({
+        steps: allSteps,
+        projectId,
+        platformId,
+        log,
+    })
+
+    const triggerStep = sourceRun.steps?.[flowVersion.trigger.name]
+    const { payload, blockers: triggerBlockers, executeTrigger } = await resolveTriggerOutput({
+        triggerStep,
+        triggerName: flowVersion.trigger.name,
+        triggerDisplayName: flowVersion.trigger.displayName,
+        projectId,
+        log,
+    })
+
+    const replaySteps = allSteps.map((step, index) => {
+        const blockers: FlowRunReplayBlocker[] = []
+        const pieceName = 'pieceName' in step.settings ? step.settings.pieceName : undefined
+        const pieceVersion = 'pieceVersion' in step.settings ? step.settings.pieceVersion : undefined
+        const connectionExternalId = getConnectionExternalId(step)
+        const connectionStatus = connectionExternalId
+            ? connectionStatusByExternalId.get(connectionExternalId)
+            : undefined
+
+        if (index === 0) {
+            blockers.push(...triggerBlockers)
+        }
+        if (connectionExternalId && isNil(connectionStatus)) {
+            blockers.push({
+                code: FlowRunReplayBlockerCode.CONNECTION_MISSING,
+                stepName: step.name,
+                stepDisplayName: step.displayName,
+                connectionExternalId,
+            })
+        }
+        else if (connectionExternalId && connectionStatus !== AppConnectionStatus.ACTIVE) {
+            blockers.push({
+                code: FlowRunReplayBlockerCode.CONNECTION_ERROR,
+                stepName: step.name,
+                stepDisplayName: step.displayName,
+                connectionExternalId,
+            })
+        }
+        if (pieceName && pieceVersion && unavailablePieces.has(`${pieceName}@${pieceVersion}`)) {
+            blockers.push({
+                code: FlowRunReplayBlockerCode.PIECE_UNAVAILABLE,
+                stepName: step.name,
+                stepDisplayName: step.displayName,
+                pieceName,
+                pieceVersion,
+            })
+        }
+
+        const replayStep: FlowRunReplayStep = {
+            name: step.name,
+            displayName: step.displayName,
+            order: index + 1,
+            isTrigger: index === 0,
+            blockers,
+            ...(pieceName ? { pieceName } : {}),
+            ...(pieceVersion ? { pieceVersion } : {}),
+            ...(connectionExternalId ? { connectionExternalId } : {}),
+            ...(connectionStatus ? { connectionStatus } : {}),
+        }
+        return replayStep
+    })
+
+    return {
+        flowVersion,
+        payload,
+        executeTrigger,
+        steps: replaySteps,
+        blockers: replaySteps.flatMap(step => step.blockers),
+    }
+}
+
+function blockerMessage(blocker: Pick<FlowRunReplayBlocker, 'code'>): string {
+    switch (blocker.code) {
+        case FlowRunReplayBlockerCode.TRIGGER_PAYLOAD_MISSING:
+            return 'The original trigger input is no longer available; run replay preparation to see the details.'
+        case FlowRunReplayBlockerCode.TRIGGER_INPUT_FILE_EXPIRED:
+            return 'A file attached to the original trigger input has expired, so this run cannot be replayed.'
+        case FlowRunReplayBlockerCode.CONNECTION_MISSING:
+            return 'A connection used by this flow no longer exists. Reconnect the piece before replaying.'
+        case FlowRunReplayBlockerCode.CONNECTION_ERROR:
+            return 'A connection used by this flow is in an error state (expired or revoked credentials). Re-authenticate before replaying.'
+        case FlowRunReplayBlockerCode.PIECE_UNAVAILABLE:
+            return 'A piece used by this flow is no longer installed or visible in this project.'
+    }
+}
 
 async function resolveTriggerOutput(params: ResolveTriggerOutputParams): Promise<ResolvedTriggerOutput> {
     const { triggerStep, triggerName, triggerDisplayName, projectId, log } = params
@@ -140,7 +167,7 @@ async function resolveTriggerOutput(params: ResolveTriggerOutputParams): Promise
             stepName: triggerName,
             stepDisplayName: triggerDisplayName,
         })
-        return { output: undefined, blockers, executeTrigger: false }
+        return { payload: undefined, blockers, executeTrigger: false }
     }
 
     const executeTrigger = triggerStep.status === StepOutputStatus.FAILED
@@ -161,7 +188,7 @@ async function resolveTriggerOutput(params: ResolveTriggerOutputParams): Promise
                 stepDisplayName: triggerDisplayName,
                 ...(ref ? { fileId: ref.fileId } : {}),
             })
-            return { output: undefined, blockers, executeTrigger }
+            return { payload: undefined, blockers, executeTrigger }
         }
         output = JSON.parse(file.data.toString('utf-8'))
     }
@@ -176,8 +203,8 @@ async function resolveTriggerOutput(params: ResolveTriggerOutputParams): Promise
         })
     }
     return blockers.length === 0
-        ? { output, blockers, executeTrigger }
-        : { output: undefined, blockers, executeTrigger }
+        ? { payload: output, blockers, executeTrigger }
+        : { payload: undefined, blockers, executeTrigger }
 }
 
 function isLogSliceRef(value: unknown): value is LogSliceRef {
@@ -316,23 +343,23 @@ function extractReferencedFileIds(value: unknown): string[] {
     return fileIds
 }
 
-type ResolveTriggerOutputParams = {
-    triggerStep: StepOutput | undefined
-    triggerName: string
-    triggerDisplayName: string
+type BuildPreparationParams = {
+    sourceRun: FlowRun
     projectId: ProjectId
     log: FastifyBaseLogger
-}
-
-type ResolvedTriggerOutput = {
-    output: unknown | undefined
-    blockers: FlowRunReplayBlocker[]
-    executeTrigger: boolean
 }
 
 type PrepareParams = {
     sourceRun: FlowRun
     projectId: ProjectId
+}
+
+type ReplayPreparation = {
+    flowVersion: FlowVersion
+    payload: unknown
+    executeTrigger: boolean
+    steps: FlowRunReplayStep[]
+    blockers: FlowRunReplayBlocker[]
 }
 
 type PrepareResult = {
@@ -347,9 +374,23 @@ type PrepareResult = {
     canReplay: boolean
 }
 
-type ResolveTriggerPayloadResult = {
+type ResolvedReplayRun = {
     payload: unknown
     flowVersion: FlowVersion
+    executeTrigger: boolean
+}
+
+type ResolveTriggerOutputParams = {
+    triggerStep: StepOutput | undefined
+    triggerName: string
+    triggerDisplayName: string
+    projectId: ProjectId
+    log: FastifyBaseLogger
+}
+
+type ResolvedTriggerOutput = {
+    payload: unknown | undefined
+    blockers: FlowRunReplayBlocker[]
     executeTrigger: boolean
 }
 

@@ -28,6 +28,7 @@ type EngineConstantsParams = {
     runEnvironment?: RunEnvironment
     stepNameToTest?: string
     logsFileId?: string
+    replayOfRunId?: string
     timeoutInSeconds: number
     platformId: PlatformId
     stepNames: string[]
@@ -69,6 +70,7 @@ export class EngineConstants {
     public readonly runEnvironment?: RunEnvironment
     public readonly stepNameToTest?: string
     public readonly logsFileId?: string
+    public readonly replayOfRunId?: string
     public readonly stepNames: string[] = []
     public readonly actionRunMode: boolean
     private project: Project | null = null
@@ -114,6 +116,7 @@ export class EngineConstants {
         this.runEnvironment = params.runEnvironment
         this.stepNameToTest = params.stepNameToTest
         this.logsFileId = params.logsFileId
+        this.replayOfRunId = params.replayOfRunId
         this.platformId = params.platformId
         this.timeoutInSeconds = params.timeoutInSeconds
         this.stepNames = params.stepNames
@@ -133,6 +136,7 @@ export class EngineConstants {
             runEnvironment: input.runEnvironment,
             stepNameToTest: input.stepNameToTest ?? undefined,
             logsFileId: input.logsFileId,
+            replayOfRunId: input.replayOfRunId,
         })
     }
 

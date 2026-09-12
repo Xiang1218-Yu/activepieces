@@ -383,7 +383,7 @@ export const flowRunService = (log: FastifyBaseLogger) => ({
             id: flowRunId,
             projectId,
         })
-        const { payload, flowVersion, executeTrigger } = await flowRunReplayService(log).resolveTriggerPayload({ sourceRun, projectId })
+        const { payload, flowVersion, executeTrigger } = await flowRunReplayService(log).resolveReplayRun({ sourceRun, projectId })
 
         const replayRun = await queueOrCreateInstantly({
             projectId,
@@ -683,6 +683,7 @@ export async function addToQueue(params: AddToQueueParams, log: FastifyBaseLogge
         stepNameToTest: params.flowRun.stepNameToTest ?? undefined,
         sampleData: params.sampleData,
         logsFileId,
+        replayOfRunId: params.flowRun.replayOfRunId,
     }
     const data: ExecuteFlowJobData = params.executionType === ExecutionType.RESUME
         ? {

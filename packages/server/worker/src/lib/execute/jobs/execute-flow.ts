@@ -76,6 +76,7 @@ export const executeFlowJob: JobHandler<ExecuteFlowJobData, FireAndForgetJobResu
                 provisionMs: result.timings.provisionMs,
                 bootMs: result.timings.bootMs,
                 runMs: result.timings.runMs,
+                ...spreadIfDefined('replayOfRunId', data.replayOfRunId),
             }))
 
             if (result.status === EngineResponseStatus.LOG_SIZE_EXCEEDED) {
@@ -146,6 +147,7 @@ function buildFlowOperation(
         streamStepProgress: data.streamStepProgress,
         stepNameToTest: data.stepNameToTest ?? null,
         logsFileId: data.logsFileId,
+        replayOfRunId: data.replayOfRunId,
         timeoutInSeconds,
         platformId: data.platformId,
         engineToken: ctx.engineToken,
@@ -207,6 +209,7 @@ async function reportFlowStatus({ ctx, data, status, internalError, failedStep }
         failedStep,
         ...spreadIfDefined('workerHandlerId', data.workerHandlerId ?? undefined),
         ...spreadIfDefined('httpRequestId', data.httpRequestId),
+        ...spreadIfDefined('replayOfRunId', data.replayOfRunId),
     })
 
     if (status === FlowRunStatus.INTERNAL_ERROR && isDedicatedWorker()) {

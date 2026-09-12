@@ -119,6 +119,8 @@ type BaseExecuteFlowOperation<T extends ExecutionType> = BaseEngineOperation & {
     stepNameToTest: string | null
     sampleData?: Record<string, unknown>
     logsFileId?: string
+    // Set for test-run replays so the engine's own status/log callbacks echo the association back.
+    replayOfRunId?: string
 }
 
 export enum StreamStepProgress {

@@ -70,11 +70,11 @@ const RUNS_METADATA_UPSERT_KEYS: (keyof RunsMetadataUpsertData)[] = [
     'id', 'projectId', 'created', 'flowId', 'flowVersionId', 'environment',
     'triggeredBy', 'startTime', 'finishTime', 'status', 'tags',
     'failedStep', 'stepNameToTest', 'parentRunId', 'failParentOnFailure',
-    'logsFileId', 'updated', 'stepsCount', 'requestId',
+    'logsFileId', 'replayOfRunId', 'updated', 'stepsCount', 'requestId',
     'provisionMs', 'bootMs', 'runMs',
 ]
 
-function stripToRunsMetadataUpsertData(params: RunsMetadataUpsertData): RunsMetadataUpsertData {
+export function stripToRunsMetadataUpsertData(params: RunsMetadataUpsertData): RunsMetadataUpsertData {
     const result: Record<string, unknown> = {}
     for (const key of RUNS_METADATA_UPSERT_KEYS) {
         if (key in params) {
@@ -116,6 +116,7 @@ export type RunsMetadataUpsertData = {
     parentRunId?: string
     failParentOnFailure?: boolean
     logsFileId?: string | null
+    replayOfRunId?: string
     updated?: string
     stepsCount?: number
     requestId?: string

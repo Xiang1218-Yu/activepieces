@@ -145,6 +145,9 @@ export const flowRunProgressReporter = {
                 stepsCount: flowExecutorContext.stepsCount,
                 workerHandlerId: engineConstants.workerHandlerId ?? undefined,
                 httpRequestId: engineConstants.httpRequestId ?? undefined,
+                ...(isNil(engineConstants.replayOfRunId)
+                    ? {}
+                    : { replayOfRunId: engineConstants.replayOfRunId }),
             }
             await sendLogsUpdate({ engineConstants, request })
         })

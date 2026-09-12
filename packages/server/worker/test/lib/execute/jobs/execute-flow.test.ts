@@ -132,6 +132,21 @@ describe('executeFlowJob', () => {
             expect(operation.executionType).toBe(ExecutionType.BEGIN)
             expect(operation.triggerPayload).toEqual({ type: 'ref', fileId: 'huge-file-1' })
             expect(operation.executionState).toBeUndefined()
+            expect(operation.replayOfRunId).toBeUndefined()
+        })
+
+        it('forwards replayOfRunId into the engine operation for a replay job', async () => {
+            const ctx = makeMockContext()
+            const data = makeResumeJobData({
+                executionType: ExecutionType.BEGIN,
+                environment: RunEnvironment.TESTING,
+                replayOfRunId: 'source-run-12345678901',
+            })
+
+            await executeFlowJob.execute(ctx, data)
+
+            const operation = ctx.runtime.execute.mock.calls[0][0].operation
+            expect(operation.replayOfRunId).toBe('source-run-12345678901')
         })
 
         it('forwards the JobPayload ref unchanged to the engine for RESUME and never reads logsFileId', async () => {
@@ -260,6 +275,32 @@ describe('executeFlowJob', () => {
             expect(ctx.apiClient.uploadRunLog).toHaveBeenCalledWith(
                 expect.objectContaining({ status, workerHandlerId: 'server-1', httpRequestId: 'req-1' }),
             )
+        })
+
+        it('threads replayOfRunId through every status callback for a replay job', async () => {
+            const ctx = makeMockContext()
+            ctx.runtime.execute = vi.fn().mockRejectedValue(sandboxError(ErrorCode.SANDBOX_EXECUTION_TIMEOUT))
+            const data = syncJobData({
+                environment: RunEnvironment.TESTING,
+                replayOfRunId: 'source-run-12345678901',
+            })
+
+            await executeFlowJob.execute(ctx, data)
+
+            for (const call of ctx.apiClient.uploadRunLog.mock.calls) {
+                expect(call[0]).toMatchObject({ replayOfRunId: 'source-run-12345678901' })
+            }
+        })
+
+        it('omits replayOfRunId from status callbacks for normal production jobs', async () => {
+            const ctx = makeMockContext()
+            ctx.runtime.execute = vi.fn().mockRejectedValue(sandboxError(ErrorCode.SANDBOX_EXECUTION_TIMEOUT))
+
+            await executeFlowJob.execute(ctx, syncJobData())
+
+            for (const call of ctx.apiClient.uploadRunLog.mock.calls) {
+                expect(call[0]).not.toHaveProperty('replayOfRunId')
+            }
         })
 
         it('reports a missing action-piece bundle (404) as FAILED anchored on the owning action step', async () => {

@@ -127,6 +127,10 @@ const ExecuteFlowJobDataCommon = z.object({
     stepNameToTest: z.string().optional(),
     sampleData: z.record(z.string(), z.unknown()).optional(),
     logsFileId: z.string(),
+    // Set when this execute-flow job is a test-run replay of another run. Threads the
+    // source-run association through worker resolution and every status callback so it
+    // survives the metadata queue (which strips unknown fields). Never set on production runs.
+    replayOfRunId: z.string().optional(),
 })
 
 export const BeginExecuteFlowJobData = ExecuteFlowJobDataCommon.extend({
