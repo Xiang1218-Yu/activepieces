@@ -95,7 +95,7 @@ export const ProjectDashboardLayoutHeader = () => {
       to: authenticationSession.appendProjectRoutePrefix('/trigger-calendar'),
       label: t('Trigger Calendar'),
       icon: CalendarClock,
-      hasPermission: checkAccess(Permission.READ_FLOW),
+      hasPermission: true,
       show: true,
     },
   ];

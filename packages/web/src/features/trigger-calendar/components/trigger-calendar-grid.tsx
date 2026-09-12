@@ -60,10 +60,16 @@ export function TriggerCalendarGrid({
   );
 
   if (calendar.scheduled.length === 0) {
+    const message =
+      calendar.restrictedCount > 0
+        ? t(
+            'The schedule triggers in this project are hidden because your role lacks flow access',
+          )
+        : t('No schedule triggers in this project');
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
         <CalendarClock className="size-8" />
-        <p className="text-sm">{t('No schedule triggers in this project')}</p>
+        <p className="text-sm">{message}</p>
       </div>
     );
   }

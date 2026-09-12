@@ -1,5 +1,3 @@
-import { Permission } from '@activepieces/core-utils';
-import { CalendarDays } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -20,13 +18,11 @@ import {
   triggerCalendarHooks,
   triggerCalendarTimeUtils as timeUtils,
 } from '@/features/trigger-calendar';
-import { useAuthorization } from '@/hooks/authorization-hooks';
 
 const WINDOW_OPTIONS = [7, 14, 30] as const;
 
 export const TriggerCalendarPage = () => {
   const { t } = useTranslation();
-  const { checkAccess } = useAuthorization();
 
   const [days, setDays] = useState<number>(7);
   const [flowIds, setFlowIds] = useState<string[]>([]);
@@ -63,17 +59,6 @@ export const TriggerCalendarPage = () => {
       setDisplayTimezone(timezones[0]);
     }
   }, [timezones]);
-
-  if (!checkAccess(Permission.READ_FLOW)) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
-        <CalendarDays className="size-8" />
-        <p className="text-sm">
-          {t('You do not have access to the trigger calendar')}
-        </p>
-      </div>
-    );
-  }
 
   const hasActiveFilters =
     flowIds.length > 0 || folderIds.length > 0 || timezones.length > 0;

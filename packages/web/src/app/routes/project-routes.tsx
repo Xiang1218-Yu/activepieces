@@ -129,13 +129,11 @@ export const projectRoutes = [
     path: routesThatRequireProjectId.triggerCalendar,
     element: (
       <ProjectDashboardLayout>
-        <RoutePermissionGuard requiredPermissions={[Permission.READ_FLOW]}>
-          <PageTitle title="Trigger Calendar">
-            <SuspenseWrapper>
-              <TriggerCalendarPage />
-            </SuspenseWrapper>
-          </PageTitle>
-        </RoutePermissionGuard>
+        <PageTitle title="Trigger Calendar">
+          <SuspenseWrapper>
+            <TriggerCalendarPage />
+          </SuspenseWrapper>
+        </PageTitle>
       </ProjectDashboardLayout>
     ),
   }),

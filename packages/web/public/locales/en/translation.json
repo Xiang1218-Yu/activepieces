@@ -2876,5 +2876,5 @@
   "{{start}} to {{end}} — calculated by the server": "{{start}} to {{end}} — calculated by the server",
   "And {{count}} more": "And {{count}} more",
   "You do not have access to the trigger calendar": "You do not have access to the trigger calendar",
-  "{{count}} flow(s) are hidden because you do not have permission to view them": "{{count}} flow(s) are hidden because you do not have permission to view them"
-}
+  "{{count}} flow(s) are hidden because you do not have permission to view them": "{{count}} flow(s) are hidden because you do not have permission to view them",
+  "The schedule triggers in this project are hidden because your role lacks flow access": "The schedule triggers in this project are hidden because your role lacks flow access"}
