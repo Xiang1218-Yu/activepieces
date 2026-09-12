@@ -4,6 +4,8 @@ import {
   CreateFlowRequest,
   FlowOperationRequest,
   FlowVersion,
+  FlowVersionDiff,
+  FlowVersionDiffRequest,
   FlowVersionMetadata,
   GetFlowQueryParamsRequest,
   ListFlowVersionRequest,
@@ -73,6 +75,15 @@ export const flowsApi = {
   ): Promise<SeekPage<FlowVersionMetadata>> {
     return api.get<SeekPage<FlowVersion>>(
       `/v1/flows/${flowId}/versions`,
+      request,
+    );
+  },
+  getVersionDiff(
+    flowId: string,
+    request: FlowVersionDiffRequest,
+  ): Promise<FlowVersionDiff> {
+    return api.get<FlowVersionDiff>(
+      `/v1/flows/${flowId}/versions/diff`,
       request,
     );
   },

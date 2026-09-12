@@ -6,7 +6,14 @@ import {
 } from '@activepieces/shared';
 import { useReactFlow } from '@xyflow/react';
 import { t } from 'i18next';
-import { ArrowRight, CircleHelp, Info, Magnet } from 'lucide-react';
+import {
+  ArrowRight,
+  CircleHelp,
+  GitCompareArrows,
+  Info,
+  Magnet,
+} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -19,6 +26,7 @@ import {
   isTimelineEmpty,
   TimelineBar,
 } from '@/features/flow-runs/components/timeline-bar';
+import { buildFlowVersionCompareUrl } from '@/features/flows';
 import { flagsHooks } from '@/hooks/flags-hooks';
 import { formatUtils } from '@/lib/format-utils';
 import { cn } from '@/lib/utils';
@@ -80,6 +88,7 @@ function getStatusText({
 
 const RunInfoWidget = () => {
   const run = useBuilderStateContext((state) => state.run);
+  const navigate = useNavigate();
   const { variant, Icon } = run
     ? flowRunUtils.getStatusIcon(run.status)
     : { variant: 'default' as const, Icon: CircleHelp };
@@ -162,6 +171,21 @@ const RunInfoWidget = () => {
           {run.failedStep && (
             <JumpToFailedStepButton failedStepName={run.failedStep.name} />
           )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              navigate(
+                buildFlowVersionCompareUrl({
+                  flowId: run.flowId,
+                  toVersionId: run.flowVersionId,
+                }),
+              );
+            }}
+          >
+            <GitCompareArrows className="size-4" />
+            {t('Compare versions')}
+          </Button>
           <EditFlowOrViewDraftButton
             onCanvas={false}
           ></EditFlowOrViewDraftButton>

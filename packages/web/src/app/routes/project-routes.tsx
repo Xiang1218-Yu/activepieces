@@ -18,6 +18,7 @@ import { ProjectRouterWrapper } from '../guards/project-route-wrapper';
 
 import { ApprovalsPage } from './approvals';
 import { AutomationsPage } from './automations';
+
 const AgentEditorPage = lazyWithRetry(
   () => import('./agents/id').then((m) => ({ default: m.AgentEditorPage })),
   'agent-editor',
@@ -46,6 +47,13 @@ const RunsPage = lazyWithRetry(
 const FlowRunPage = lazyWithRetry(
   () => import('./runs/id').then((m) => ({ default: m.FlowRunPage })),
   'flow-run',
+);
+const FlowVersionComparePage = lazyWithRetry(
+  () =>
+    import('./flow-version-compare').then((m) => ({
+      default: m.FlowVersionComparePage,
+    })),
+  'flow-version-compare',
 );
 const AppConnectionsPage = lazyWithRetry(
   () =>
@@ -141,6 +149,20 @@ export const projectRoutes = [
   ...ProjectRouterWrapper({
     path: '/flow-import-redirect/:flowId',
     element: <AfterImportFlowRedirect></AfterImportFlowRedirect>,
+  }),
+  ...ProjectRouterWrapper({
+    path: routesThatRequireProjectId.flowVersionCompare,
+    element: (
+      <RoutePermissionGuard requiredPermissions={Permission.READ_FLOW}>
+        <PageTitle title="Compare Versions">
+          <BuilderLayout>
+            <SuspenseWrapper>
+              <FlowVersionComparePage />
+            </SuspenseWrapper>
+          </BuilderLayout>
+        </PageTitle>
+      </RoutePermissionGuard>
+    ),
   }),
   ...ProjectRouterWrapper({
     path: routesThatRequireProjectId.singleRun,

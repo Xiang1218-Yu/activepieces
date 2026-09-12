@@ -1,8 +1,15 @@
 import { Permission } from '@activepieces/core-utils';
 import { FlowVersionMetadata, FlowVersionState } from '@activepieces/shared';
 import { t } from 'i18next';
-import { EllipsisVertical, Eye, EyeIcon, Pencil } from 'lucide-react';
+import {
+  EllipsisVertical,
+  Eye,
+  EyeIcon,
+  GitCompareArrows,
+  Pencil,
+} from 'lucide-react';
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { useBuilderStateContext } from '@/app/builder/builder-hooks';
 import { CardListItem } from '@/components/custom/card-list';
@@ -21,7 +28,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { FlowVersionStateDot, flowHooks } from '@/features/flows';
+import {
+  buildFlowVersionCompareUrl,
+  FlowVersionStateDot,
+  flowHooks,
+} from '@/features/flows';
 import { useAuthorization } from '@/hooks/authorization-hooks';
 
 import { OverwriteDraftDialog } from './overwrite-draft-dialog';
@@ -51,6 +62,16 @@ const FlowVersionDetailsCard = React.memo(
     });
 
     const showAvatar = !useEmbedding().embedState.isEmbedded;
+    const navigate = useNavigate();
+
+    const openCompare = () => {
+      navigate(
+        buildFlowVersionCompareUrl({
+          flowId: flowVersion.flowId,
+          toVersionId: flowVersion.id,
+        }),
+      );
+    };
 
     return (
       <CardListItem interactive={false} className="px-4">
@@ -111,6 +132,10 @@ const FlowVersionDetailsCard = React.memo(
               >
                 <Eye className="mr-2 h-4 w-4" />
                 <span>{t('View')}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={openCompare} className="w-full">
+                <GitCompareArrows className="mr-2 h-4 w-4" />
+                <span>{t('Compare')}</span>
               </DropdownMenuItem>
               {flowVersion.state !== FlowVersionState.DRAFT && (
                 <OverwriteDraftDialog
