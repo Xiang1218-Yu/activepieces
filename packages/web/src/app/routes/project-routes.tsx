@@ -43,6 +43,14 @@ const RunsPage = lazyWithRetry(
   () => import('./runs').then((m) => ({ default: m.RunsPage })),
   'runs',
 );
+const WebhookRequestsPage = lazyWithRetry(
+  () => import('./webhook-requests'),
+  'webhook-requests',
+);
+const WebhookRequestDetailPage = lazyWithRetry(
+  () => import('./webhook-requests/id'),
+  'webhook-request-detail',
+);
 const FlowRunPage = lazyWithRetry(
   () => import('./runs/id').then((m) => ({ default: m.FlowRunPage })),
   'flow-run',
@@ -168,6 +176,34 @@ export const projectRoutes = [
           </PageTitle>
         </RoutePermissionGuard>
       </ProjectDashboardLayout>
+    ),
+  }),
+  ...ProjectRouterWrapper({
+    path: '/webhook-requests',
+    element: (
+      <ProjectDashboardLayout>
+        <RoutePermissionGuard requiredPermissions={Permission.READ_RUN}>
+          <PageTitle title="Webhook Requests">
+            <SuspenseWrapper>
+              <WebhookRequestsPage />
+            </SuspenseWrapper>
+          </PageTitle>
+        </RoutePermissionGuard>
+      </ProjectDashboardLayout>
+    ),
+  }),
+  ...ProjectRouterWrapper({
+    path: '/webhook-requests/:id',
+    element: (
+      <BuilderLayout>
+        <RoutePermissionGuard requiredPermissions={Permission.READ_RUN}>
+          <PageTitle title="Webhook Request">
+            <SuspenseWrapper>
+              <WebhookRequestDetailPage />
+            </SuspenseWrapper>
+          </PageTitle>
+        </RoutePermissionGuard>
+      </BuilderLayout>
     ),
   }),
   ...ProjectRouterWrapper({

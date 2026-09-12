@@ -119,6 +119,8 @@ import { invitationModule } from './user-invitations/user-invitation.module'
 import { variableModule } from './variable/variable.module'
 import { resumePageHooks } from './waitpoints/resume-page-hooks'
 import { webhookModule } from './webhooks/webhook-module'
+import { startWebhookCaptureCleanup } from './webhooks/inspector/webhook-request-inspector.service'
+import { webhookRequestInspectorModule } from './webhooks/inspector/webhook-request-inspector.module'
 import { engineResponseWatcher } from './workers/engine-response-watcher'
 
 import { workerCapacity } from './workers/machine/worker-capacity'
@@ -238,6 +240,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
     await app.register(flowModule)
     await app.register(flowRunModule)
     await app.register(webhookModule)
+    await app.register(webhookRequestInspectorModule)
     await app.register(appConnectionModule)
     await app.register(platformAppConnectionModule)
     await app.register(variableModule)
@@ -414,6 +417,9 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
     else {
         await systemJobsSchedule(app.log).startWorker()
     }
+
+    // Periodically purge webhook inspector captures past the configurable retention window.
+    startWebhookCaptureCleanup(app.log)
 
     app.addHook('onClose', async () => {
         app.log.info('Shutting down')

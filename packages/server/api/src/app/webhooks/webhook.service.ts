@@ -15,6 +15,7 @@ import { triggerSourceService } from '../trigger/trigger-source/trigger-source-s
 import { engineResponseWatcher } from '../workers/engine-response-watcher'
 import { jobQueue, JobType } from '../workers/job-queue/job-queue'
 import { payloadOffloader } from '../workers/payload-offloader'
+import { WebhookRequestCapturer } from './inspector/webhook-request-capturer'
 import { webhookHandshake } from './webhook-handshake'
 
 const WEBHOOK_TIMEOUT_MS = system.getNumberOrThrow(AppSystemProp.WEBHOOK_TIMEOUT_SECONDS) * 1000
@@ -55,6 +56,7 @@ export const webhookService = {
         parentRunId,
         failParentOnFailure,
         timeoutMs,
+        inspector,
     }: HandleWebhookParams): Promise<EngineHttpResponse> {
         const webhookHeader = 'x-webhook-id'
         const webhookRequestId = apId()
@@ -85,6 +87,7 @@ export const webhookService = {
             }
         }
         const { flow } = flowExecutionResult
+        inspector?.bindOwner({ projectId: flow.projectId, platformId: flowExecutionResult.platformId })
 
         // data() consumes the request body stream (streaming any file straight to storage), which
         // can only be read once. The handshake check and the payload resolution below both need it,
@@ -105,6 +108,7 @@ export const webhookService = {
         // Handshake pings can arrive both during the publish window (when flow.status is still
         // DISABLED before the transaction completes) and after the flow is ENABLED (third-party
         // re-verification). Checking before the DISABLED guard handles both cases.
+        const environment = flowVersionToRun === WebhookFlowVersionToRun.LOCKED_FALL_BACK_TO_LATEST ? RunEnvironment.PRODUCTION : RunEnvironment.TESTING
         if (!isNil(flowExecutionResult.handshakeConfiguration)) {
             const response = await webhookHandshake.handleHandshakeRequest({
                 payload: (payload ?? await resolveData()) as TriggerPayload,
@@ -121,6 +125,7 @@ export const webhookService = {
                     webhookRequestId,
                 }, 'Handshake request completed')
                 wideEvent.set({ webhook: { handshake: true } })
+                await completeInspection(inspector, pinoLogger, webhookRequestId, response.status, environment)
                 return {
                     status: response.status,
                     body: response.body,
@@ -132,6 +137,7 @@ export const webhookService = {
         if (flow.status === FlowStatus.DISABLED && !saveSampleData) {
             pinoLogger.warn({ flow: { id: flowId } }, 'Webhook received for disabled flow')
             wideEvent.set({ webhook: { flowFound: false } })
+            await completeInspection(inspector, pinoLogger, webhookRequestId, StatusCodes.NOT_FOUND, environment)
             return {
                 status: StatusCodes.NOT_FOUND,
                 body: {},
@@ -149,6 +155,7 @@ export const webhookService = {
         if (payloadSize > MAX_PAYLOAD_SIZE_BYTES) {
             pinoLogger.warn({ payloadSize, maxPayloadSizeBytes: MAX_PAYLOAD_SIZE_BYTES }, 'Webhook payload too large')
             wideEvent.set({ webhook: { payloadTooLarge: true } })
+            await completeInspection(inspector, pinoLogger, webhookRequestId, StatusCodes.REQUEST_TOO_LONG, environment)
             return {
                 status: StatusCodes.REQUEST_TOO_LONG,
                 body: { message: 'Payload too large' },
@@ -160,7 +167,7 @@ export const webhookService = {
 
         if (async) {
             wideEvent.set({ webhook: { mode: 'async' } })
-            return handleAsync({
+            const asyncResponse = await handleAsync({
                 flow,
                 saveSampleData,
                 platformId: flowExecutionResult.platformId,
@@ -168,12 +175,14 @@ export const webhookService = {
                 payload: resolvedPayload,
                 logger: pinoLogger,
                 webhookRequestId,
-                runEnvironment: flowVersionToRun === WebhookFlowVersionToRun.LOCKED_FALL_BACK_TO_LATEST ? RunEnvironment.PRODUCTION : RunEnvironment.TESTING,
+                runEnvironment: environment,
                 webhookHeader,
                 execute: flow.status === FlowStatus.ENABLED && execute,
                 parentRunId,
                 failParentOnFailure,
             })
+            await completeInspection(inspector, pinoLogger, webhookRequestId, asyncResponse.status, environment)
+            return asyncResponse
         }
 
         wideEvent.set({ webhook: { mode: 'sync' } })
@@ -182,7 +191,7 @@ export const webhookService = {
             projectId: flow.projectId,
             flow,
             platformId: flowExecutionResult.platformId,
-            runEnvironment: flowVersionToRun === WebhookFlowVersionToRun.LOCKED_FALL_BACK_TO_LATEST ? RunEnvironment.PRODUCTION : RunEnvironment.TESTING,
+            runEnvironment: environment,
             logger: pinoLogger,
             webhookRequestId,
             workerHandlerId: engineResponseWatcher(pinoLogger).getServerId(),
@@ -194,7 +203,7 @@ export const webhookService = {
             failParentOnFailure,
             timeoutMs,
         })
-        return {
+        const response = {
             status: flowHttpResponse.status,
             body: flowHttpResponse.body,
             headers: {
@@ -202,7 +211,22 @@ export const webhookService = {
                 [webhookHeader]: webhookRequestId,
             },
         }
+        await completeInspection(inspector, pinoLogger, webhookRequestId, response.status, environment)
+        return response
     },
+}
+
+async function completeInspection(
+    inspector: WebhookRequestCapturer | undefined,
+    logger: FastifyBaseLogger,
+    requestId: string,
+    responseStatus: number,
+    environment: RunEnvironment,
+): Promise<void> {
+    if (isNil(inspector)) {
+        return
+    }
+    await inspector.complete({ logger, requestId, responseStatus, environment })
 }
 
 async function handleAsync(params: AsyncWebhookParams): Promise<EngineHttpResponse> {
@@ -356,6 +380,7 @@ type HandleWebhookParams = {
     parentRunId?: string
     failParentOnFailure: boolean
     timeoutMs?: number
+    inspector?: WebhookRequestCapturer
 }
 
 type AsyncWebhookParams = {

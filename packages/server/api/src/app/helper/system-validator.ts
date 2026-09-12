@@ -153,6 +153,8 @@ const systemPropValidators: {
     [AppSystemProp.TOOL_SEARCH_ENABLED]: booleanValidator,
     [AppSystemProp.TRIGGER_DEFAULT_POLL_INTERVAL]: numberValidator,
     [AppSystemProp.WEBHOOK_TIMEOUT_SECONDS]: numberValidator,
+    [AppSystemProp.WEBHOOK_INSPECTOR_RETENTION_DAYS]: numberValidator,
+    [AppSystemProp.WEBHOOK_INSPECTOR_MAX_BODY_KB]: numberValidator,
     [AppSystemProp.ZEROBOUNCE_API_KEY]: stringValidator,
     [AppSystemProp.LOAD_TRANSLATIONS_FOR_DEV_PIECES]: booleanValidator,
     [AppSystemProp.APPSUMO_TOKEN]: stringValidator,

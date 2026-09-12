@@ -32,6 +32,8 @@ const systemPropDefaultValues: Partial<Record<SystemProp, string>> = {
     [AppSystemProp.ENVIRONMENT]: 'prod',
     [AppSystemProp.EXECUTION_MODE]: ExecutionMode.UNSANDBOXED,
     [AppSystemProp.WEBHOOK_TIMEOUT_SECONDS]: '30',
+    [AppSystemProp.WEBHOOK_INSPECTOR_RETENTION_DAYS]: '7',
+    [AppSystemProp.WEBHOOK_INSPECTOR_MAX_BODY_KB]: '16',
     [AppSystemProp.LOAD_TRANSLATIONS_FOR_DEV_PIECES]: 'false',
     [AppSystemProp.LOG_LEVEL]: 'info',
     [AppSystemProp.LOG_PRETTY]: 'false',

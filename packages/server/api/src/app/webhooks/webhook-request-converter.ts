@@ -8,6 +8,7 @@ import { enforceByteLimit, filesService, fileTooLargeError } from '../file/files
 import { system } from '../helper/system/system'
 import { AppSystemProp } from '../helper/system/system-props'
 import { projectService } from '../project/project-service'
+import { WebhookRequestCapturer } from './inspector/webhook-request-capturer'
 
 const BINARY_CONTENT_TYPE_PATTERNS = [
     /^image\//,
@@ -34,13 +35,14 @@ export async function convertRequest(
     request: FastifyRequest,
     projectId: string,
     flowId: string,
+    inspector?: WebhookRequestCapturer,
 ): Promise<EventPayload> {
     const contentType = request.headers['content-type']
     const isBinary = isBinaryContentType(contentType)
     return {
         method: request.method,
         headers: request.headers as Record<string, string>,
-        body: await convertBody(request, projectId, flowId),
+        body: await convertBody(request, projectId, flowId, inspector),
         queryParams: request.query as Record<string, string>,
         // Streamed bodies (binary/multipart) are consumed straight to storage, so there is no
         // raw payload to forward; rawBody is captured only for the string-parsed signed types.
@@ -59,24 +61,29 @@ async function convertBody(
     request: FastifyRequest,
     projectId: string,
     flowId: string,
+    inspector?: WebhookRequestCapturer,
 ): Promise<unknown> {
     if (request.isMultipart()) {
         const platformId = await projectService(request.log).getPlatformId(projectId)
+        inspector?.bindOwner({ projectId, platformId })
         const maxFileSizeInBytes = system.getNumberOrThrow(AppSystemProp.MAX_FILE_SIZE_MB) * 1024 * 1024
         const jsonResult: Record<string, unknown> = {}
         for await (const part of request.parts()) {
             if (part.type === 'file') {
+                const countedStream = inspector?.countMultipartFile(part, part.file) ?? part.file
                 const url = await saveStepFileAndConstructUrl({
                     log: request.log,
-                    data: failIfTruncated(part.file, maxFileSizeInBytes),
+                    data: failIfTruncated(countedStream, maxFileSizeInBytes),
                     fileName: part.filename,
                     flowId,
                     platformId,
                     projectId,
                 })
+                inspector?.recordMultipartFileUrl(url)
                 jsonResult[part.fieldname] = appendMultiValue(jsonResult[part.fieldname], url)
             }
             else {
+                inspector?.recordMultipartField(part)
                 jsonResult[part.fieldname] = appendMultiValue(jsonResult[part.fieldname], part.value)
             }
         }
@@ -86,19 +93,23 @@ async function convertBody(
     const contentType = request.headers['content-type']
     if (isBinaryContentType(contentType)) {
         const platformId = await projectService(request.log).getPlatformId(projectId)
+        inspector?.bindOwner({ projectId, platformId })
         const extension = mime.extension(contentType?.split(';')[0] || '') || 'bin'
         const maxFileSizeInBytes = system.getNumberOrThrow(AppSystemProp.MAX_FILE_SIZE_MB) * 1024 * 1024
+        const countedStream = inspector?.countBinaryStream(contentType, request.body as Readable) ?? request.body as Readable
         const url = await saveStepFileAndConstructUrl({
             log: request.log,
-            data: (request.body as Readable).pipe(enforceByteLimit(maxFileSizeInBytes)),
+            data: countedStream.pipe(enforceByteLimit(maxFileSizeInBytes)),
             fileName: `file.${extension}`,
             flowId,
             platformId,
             projectId,
         })
+        inspector?.recordBinaryFileUrl(url)
         return { fileUrl: url }
     }
 
+    inspector?.recordParsedBody(request.body, request.rawBody)
     return request.body
 }
 

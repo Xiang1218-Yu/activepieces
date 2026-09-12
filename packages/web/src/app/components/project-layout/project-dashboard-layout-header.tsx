@@ -8,6 +8,7 @@ import { ConnectIcon } from '@/components/icons/connect';
 import { HistoryIcon } from '@/components/icons/history';
 import { ShieldIcon } from '@/components/icons/shield';
 import { VariableIcon } from '@/components/icons/variable';
+import { WebhookIcon } from '@/components/icons/webhook';
 import { WorkflowIcon } from '@/components/icons/workflow';
 import { useEmbedding } from '@/components/providers/embed-provider';
 import { Separator } from '@/components/ui/separator';
@@ -97,6 +98,13 @@ export const ProjectDashboardLayoutHeader = () => {
       to: authenticationSession.appendProjectRoutePrefix('/runs'),
       label: t('Runs'),
       icon: HistoryIcon,
+      hasPermission: checkAccess(Permission.READ_RUN),
+      show: true,
+    },
+    {
+      to: authenticationSession.appendProjectRoutePrefix('/webhook-requests'),
+      label: t('Webhooks'),
+      icon: WebhookIcon,
       hasPermission: checkAccess(Permission.READ_RUN),
       show: true,
     },
