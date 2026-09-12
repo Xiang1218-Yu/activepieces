@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { projectReleaseMutations } from '@/features/project-releases';
+import { authenticationSession } from '@/lib/authentication-session';
 
 import { CreateReleaseDialog } from '../../project-release/create-release-dialog';
 
@@ -46,16 +47,18 @@ export function ContinueToReleaseButton({
     },
   });
 
+  const continueToRelease = () => {
+    setLoading(true);
+    if (authenticationSession.getProjectId() !== targetProjectId) {
+      authenticationSession.setProjectId(targetProjectId);
+      window.dispatchEvent(new Event('storage'));
+    }
+    diffRelease(diffRequest);
+  };
+
   return (
     <>
-      <Button
-        size="sm"
-        loading={loading}
-        onClick={() => {
-          setLoading(true);
-          diffRelease(diffRequest);
-        }}
-      >
+      <Button size="sm" loading={loading} onClick={continueToRelease}>
         <Rocket className="size-4 mr-2" />
         {hasBlockers
           ? t('Continue despite blockers')

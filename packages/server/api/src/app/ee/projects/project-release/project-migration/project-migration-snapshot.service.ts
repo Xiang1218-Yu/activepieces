@@ -1,29 +1,43 @@
 import { gunzipSync, gzipSync } from 'node:zlib'
+
 import { ActivepiecesError, ErrorCode, isNil } from '@activepieces/core-utils'
-import {
-    ProjectMigrationSnapshot,
-} from '@activepieces/shared'
+import { ProjectMigrationSnapshot } from '@activepieces/shared'
+import { encryptUtils } from '../../../../helper/encryption'
 
 const TOKEN_PREFIX = 'apm1.'
+const SIGNATURE_PARTS_SEPARATOR = '.'
 const MAX_TOKEN_BYTES = 16 * 1024 * 1024
 
 export const projectMigrationSnapshotService = {
-    encode({ snapshot }: { snapshot: ProjectMigrationSnapshot }): string {
-        const payload = JSON.stringify(snapshot)
-        const compressed = gzipSync(Buffer.from(payload, 'utf-8'))
-        return `${TOKEN_PREFIX}${compressed.toString('base64url')}`
+    async encode({ snapshot }: { snapshot: ProjectMigrationSnapshot }): Promise<string> {
+        const payload = Buffer.from(JSON.stringify(snapshot), 'utf-8')
+        const compressed = gzipSync(payload)
+        const encodedPayload = compressed.toString('base64url')
+        const signature = await signPayload(encodedPayload)
+        return `${TOKEN_PREFIX}${encodedPayload}${SIGNATURE_PARTS_SEPARATOR}${signature}`
     },
-    decode({ token, expectedTargetProjectId }: DecodeParams): ProjectMigrationSnapshot {
+    async decode({ token, expectedTargetProjectId }: DecodeParams): Promise<ProjectMigrationSnapshot> {
         if (isNil(token) || !token.startsWith(TOKEN_PREFIX)) {
             throw invalidSnapshotError()
         }
-        const encoded = token.slice(TOKEN_PREFIX.length)
-        if (Buffer.byteLength(encoded, 'utf-8') > MAX_TOKEN_BYTES) {
+        const tokenBody = token.slice(TOKEN_PREFIX.length)
+        const separatorIndex = tokenBody.lastIndexOf(SIGNATURE_PARTS_SEPARATOR)
+        if (separatorIndex === -1) {
             throw invalidSnapshotError()
         }
+        const encodedPayload = tokenBody.slice(0, separatorIndex)
+        const signature = tokenBody.slice(separatorIndex + 1)
+        if (Buffer.byteLength(encodedPayload, 'utf-8') > MAX_TOKEN_BYTES) {
+            throw invalidSnapshotError()
+        }
+        const expectedSignature = await signPayload(encodedPayload)
+        if (!encryptUtils.digestsMatch(signature, expectedSignature)) {
+            throw invalidSnapshotError()
+        }
+
         let parsed: unknown
         try {
-            const decompressed = gunzipSync(Buffer.from(encoded, 'base64url'))
+            const decompressed = gunzipSync(Buffer.from(encodedPayload, 'base64url'))
             parsed = JSON.parse(decompressed.toString('utf-8'))
         }
         catch {
@@ -34,10 +48,19 @@ export const projectMigrationSnapshotService = {
             throw invalidSnapshotError()
         }
         if (!isNil(expectedTargetProjectId) && snapshot.data.targetProjectId !== expectedTargetProjectId) {
-            throw invalidSnapshotError()
+            throw new ActivepiecesError({
+                code: ErrorCode.VALIDATION,
+                params: {
+                    message: 'The precheck snapshot was generated for a different target project. Run the precheck again.',
+                },
+            })
         }
         return snapshot.data
     },
+}
+
+async function signPayload(encodedPayload: string): Promise<string> {
+    return encryptUtils.hmacString(encodedPayload)
 }
 
 function invalidSnapshotError(): ActivepiecesError {

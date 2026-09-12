@@ -8,7 +8,7 @@ import {
     ProjectState,
     ProjectSyncPlan,
 } from '@activepieces/shared'
-import { projectMigrationReportService } from '../../../../../../../src/app/ee/projects/project-release/project-migration/project-migration-report.service'
+import { normalizePieceVersion, pieceVersionSatisfies, projectMigrationReportService } from '../../../../../../../src/app/ee/projects/project-release/project-migration/project-migration-report.service'
 import { flowGenerator } from '../../../../../../helpers/flow-generator'
 
 describe('Project Migration Report Service', () => {
@@ -187,6 +187,86 @@ describe('Project Migration Report Service', () => {
         expect(secondPage.nextOffset).toBeNull()
     })
 
+    it('should normalize wildcard piece ranges (^/~) when matching availability', () => {
+        const sourceFlow = flowWithPieceStep({
+            externalId: 'extFlowWildcard',
+            pieceName: '@activepieces/piece-google-sheets',
+            pieceVersion: '^1.2.3',
+        })
+        const { snapshot, plan } = buildScenario({
+            sourceState: { flows: [sourceFlow] },
+            targetState: { flows: [] },
+        })
+
+        const page = projectMigrationReportService.getPage({
+            snapshot,
+            plan,
+            resourceType: ProjectMigrationResourceType.FLOW,
+            offset: 0,
+            limit: 20,
+            availablePieceKeys: new Set(['@activepieces/piece-google-sheets@1.2.3']),
+        })
+
+        expect(page.data[0].blockers.filter((b) => b.type === 'MISSING_PIECE')).toHaveLength(0)
+    })
+
+    it('should keep the group stable against the snapshot target state even if the live target changes later', () => {
+        const sourceFlow = validFlow('extFlowStable')
+        const targetFlowAtPrecheck: PopulatedFlow = {
+            ...sourceFlow,
+            id: 'target-internal-id',
+            projectId: 'target-project',
+        }
+        const { snapshot, plan } = buildScenario({
+            sourceState: { flows: [sourceFlow] },
+            targetState: { flows: [targetFlowAtPrecheck] },
+        })
+
+        const page = projectMigrationReportService.getPage({
+            snapshot,
+            plan,
+            resourceType: ProjectMigrationResourceType.FLOW,
+            offset: 0,
+            limit: 20,
+            availablePieceKeys: new Set(),
+        })
+
+        expect(page.data).toHaveLength(1)
+        expect(page.data[0].status).toBe(ProjectMigrationOperationStatus.NO_CHANGE)
+        expect(page.data[0].targetFlowState?.id).toBe('target-internal-id')
+    })
+
+    it('should sort blocked items first, then create/update/delete/no-change', () => {
+        const blockedCreateFlow = flowWithPieceStep({
+            externalId: 'extFlowBlocked',
+            pieceName: '@activepieces/piece-missing',
+            pieceVersion: '1.0.0',
+        })
+        const plainCreateFlow = validFlow('extFlowCreate')
+        const deleteFlow = validFlow('extFlowDelete')
+
+        const { snapshot, plan } = buildScenario({
+            sourceState: { flows: [blockedCreateFlow, plainCreateFlow] },
+            targetState: { flows: [deleteFlow] },
+        })
+
+        const page = projectMigrationReportService.getPage({
+            snapshot,
+            plan,
+            resourceType: ProjectMigrationResourceType.FLOW,
+            offset: 0,
+            limit: 20,
+            availablePieceKeys: new Set(),
+        })
+
+        expect(page.data[0].isBlocked).toBe(true)
+        const statuses = page.data.map((item) => item.status)
+        expect(statuses.slice(1)).toEqual([
+            ProjectMigrationOperationStatus.WILL_CREATE,
+            ProjectMigrationOperationStatus.WILL_DELETE,
+        ])
+    })
+
     it('should return empty resources for empty projects', () => {
         const { snapshot } = buildScenario({
             sourceState: { flows: [] },
@@ -304,3 +384,27 @@ function flowWithPieceStep({ externalId, pieceName, pieceVersion }: {
     }
     return flowWithSteps
 }
+
+describe('normalizePieceVersion', () => {
+    it('should strip caret and tilde wildcards to exact versions', () => {
+        expect(normalizePieceVersion('^1.2.3')).toBe('1.2.3')
+        expect(normalizePieceVersion('~1.2.3')).toBe('1.2.3')
+        expect(normalizePieceVersion('1.2.3')).toBe('1.2.3')
+    })
+
+    it('should keep the * wildcard intact', () => {
+        expect(normalizePieceVersion('*')).toBe('*')
+    })
+})
+
+describe('pieceVersionSatisfies', () => {
+    it('should match exact versions only', () => {
+        expect(pieceVersionSatisfies('1.2.3', '1.2.3')).toBe(true)
+        expect(pieceVersionSatisfies('1.2.4', '1.2.3')).toBe(false)
+    })
+
+    it('should treat any installed version as satisfying *', () => {
+        expect(pieceVersionSatisfies('4.5.6', '*')).toBe(true)
+        expect(pieceVersionSatisfies('*', '*')).toBe(false)
+    })
+})

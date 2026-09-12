@@ -5,6 +5,7 @@ import {
     ConnectionState,
     FlowActionType,
     FlowMigrationItem,
+    flowPieceUtil,
     FlowProjectOperationType,
     FlowState,
     flowStructureUtil,
@@ -29,6 +30,38 @@ import {
     TableState,
 } from '@activepieces/shared'
 import deepEqual from 'deep-equal'
+
+const WILDCARD_PIECE_VERSION = '*'
+
+export function normalizePieceVersion(pieceVersion: string): string {
+    if (pieceVersion === WILDCARD_PIECE_VERSION) {
+        return WILDCARD_PIECE_VERSION
+    }
+    return flowPieceUtil.getExactVersion(pieceVersion)
+}
+
+export function pieceVersionSatisfies(available: string, required: string): boolean {
+    if (required === WILDCARD_PIECE_VERSION) {
+        return available !== WILDCARD_PIECE_VERSION
+    }
+    return available === required
+}
+
+export function isPieceVersionAvailable({ pieceName, pieceVersion, availablePieceKeys }: { pieceName: string, pieceVersion: string, availablePieceKeys: Set<string> }): boolean {
+    const normalizedVersion = normalizePieceVersion(pieceVersion)
+    if (normalizedVersion === WILDCARD_PIECE_VERSION) {
+        return [...availablePieceKeys].some((availableKey) => {
+            const separatorIndex = availableKey.lastIndexOf('@')
+            if (separatorIndex <= 0) {
+                return false
+            }
+            const name = availableKey.slice(0, separatorIndex)
+            const version = availableKey.slice(separatorIndex + 1)
+            return name === pieceName && pieceVersionSatisfies(version, normalizedVersion)
+        })
+    }
+    return availablePieceKeys.has(`${pieceName}@${normalizedVersion}`)
+}
 
 type BuildReportParams = {
     snapshot: ProjectMigrationSnapshot
@@ -64,10 +97,10 @@ function groupAllItems({ snapshot, availablePieceKeys }: { snapshot: ProjectMigr
     const sourceState = ProjectState.parse(snapshot.sourceState)
     const targetState = ProjectState.parse(snapshot.targetState)
     return {
-        [ProjectMigrationResourceType.FLOW]: buildFlowItems({ sourceState, targetState, availablePieceKeys }),
-        [ProjectMigrationResourceType.TABLE]: buildTableItems({ sourceState, targetState }),
-        [ProjectMigrationResourceType.CONNECTION]: buildConnectionItems({ sourceState, targetState }),
-        [ProjectMigrationResourceType.FOLDER]: buildFolderItems({ sourceState, targetState }),
+        [ProjectMigrationResourceType.FLOW]: sortItems(buildFlowItems({ sourceState, targetState, availablePieceKeys })),
+        [ProjectMigrationResourceType.TABLE]: sortItems(buildTableItems({ sourceState, targetState })),
+        [ProjectMigrationResourceType.CONNECTION]: sortItems(buildConnectionItems({ sourceState, targetState })),
+        [ProjectMigrationResourceType.FOLDER]: sortItems(buildFolderItems({ sourceState, targetState })),
     }
 }
 
@@ -76,13 +109,46 @@ function groupItems({ snapshot, plan, resourceType, availablePieceKeys }: { snap
     const targetState = ProjectState.parse(snapshot.targetState)
     switch (resourceType) {
         case ProjectMigrationResourceType.FLOW:
-            return buildFlowItems({ sourceState, targetState, flowPlan: plan.flows, availablePieceKeys })
+            return sortItems(buildFlowItems({ sourceState, targetState, flowPlan: plan.flows, availablePieceKeys }))
         case ProjectMigrationResourceType.TABLE:
-            return buildTableItems({ sourceState, targetState })
+            return sortItems(buildTableItems({ sourceState, targetState }))
         case ProjectMigrationResourceType.CONNECTION:
-            return buildConnectionItems({ sourceState, targetState })
+            return sortItems(buildConnectionItems({ sourceState, targetState }))
         case ProjectMigrationResourceType.FOLDER:
-            return buildFolderItems({ sourceState, targetState })
+            return sortItems(buildFolderItems({ sourceState, targetState }))
+    }
+}
+
+const statusOrder: Record<ProjectMigrationOperationStatus, number> = {
+    [ProjectMigrationOperationStatus.WILL_CREATE]: 0,
+    [ProjectMigrationOperationStatus.WILL_UPDATE]: 1,
+    [ProjectMigrationOperationStatus.WILL_DELETE]: 2,
+    [ProjectMigrationOperationStatus.NO_CHANGE]: 3,
+}
+
+function sortItems(items: ProjectMigrationItem[]): ProjectMigrationItem[] {
+    return [...items].sort((a, b) => {
+        if (a.isBlocked !== b.isBlocked) {
+            return a.isBlocked ? -1 : 1
+        }
+        const statusDifference = statusOrder[a.status] - statusOrder[b.status]
+        if (statusDifference !== 0) {
+            return statusDifference
+        }
+        return getItemName(a).localeCompare(getItemName(b))
+    })
+}
+
+function getItemName(item: ProjectMigrationItem): string {
+    switch (item.resourceType) {
+        case ProjectMigrationResourceType.FLOW:
+            return item.sourceFlowState?.version.displayName ?? item.targetFlowState?.version.displayName ?? ''
+        case ProjectMigrationResourceType.TABLE:
+            return item.sourceTableState?.name ?? item.targetTableState?.name ?? ''
+        case ProjectMigrationResourceType.CONNECTION:
+            return item.sourceConnectionState?.displayName ?? item.targetConnectionState?.displayName ?? ''
+        case ProjectMigrationResourceType.FOLDER:
+            return item.sourceFolderState?.displayName ?? item.targetFolderState?.displayName ?? ''
     }
 }
 
@@ -190,10 +256,7 @@ function collectPieceVersions(flow: FlowState): Map<string, string> {
     const versions = new Map<string, string>()
     flowStructureUtil.getAllSteps(flow.version.trigger).forEach((step) => {
         if (step.type === FlowActionType.PIECE || step.type === FlowTriggerType.PIECE) {
-            const version = step.settings.pieceVersion.startsWith('^') || step.settings.pieceVersion.startsWith('~')
-                ? step.settings.pieceVersion.slice(1)
-                : step.settings.pieceVersion
-            versions.set(step.name, version)
+            versions.set(step.name, normalizePieceVersion(step.settings.pieceVersion))
         }
     })
     return versions
@@ -239,18 +302,23 @@ function findMissingPieces({ sourceFlow, availablePieceKeys }: { sourceFlow: Flo
         if (isNil(pieceName) || isNil(pieceVersion)) {
             continue
         }
-        const key = `${pieceName}@${pieceVersion}`
+        const normalizedVersion = normalizePieceVersion(pieceVersion)
+        const key = `${pieceName}@${normalizedVersion}`
         if (seen.has(key)) {
             continue
         }
         seen.add(key)
-        const available = availablePieceKeys.has(key) || availablePieceKeys.has(pieceName)
+        const available = isPieceVersionAvailable({
+            pieceName,
+            pieceVersion: normalizedVersion,
+            availablePieceKeys,
+        })
         if (available) {
             continue
         }
         missingPieces.push({
             pieceName,
-            pieceVersion,
+            pieceVersion: normalizedVersion,
             stepName: step.name,
             stepDisplayName: step.displayName ?? null,
         })

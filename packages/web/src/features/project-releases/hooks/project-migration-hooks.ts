@@ -9,8 +9,6 @@ import {
   useQuery,
 } from '@tanstack/react-query';
 
-import { authenticationSession } from '@/lib/authentication-session';
-
 import { projectMigrationApi } from '../api/project-migration-api';
 
 const PAGE_LIMIT = 20;
@@ -30,7 +28,6 @@ export function useMigrationPrecheckBootstrap({
   targetProjectId,
   enabled,
 }: UseMigrationPrecheckBootstrapParams) {
-  const currentProjectId = authenticationSession.getProjectId();
   return useQuery({
     queryKey: [
       'migration-precheck-bootstrap',
@@ -39,14 +36,14 @@ export function useMigrationPrecheckBootstrap({
     ] as const,
     enabled:
       enabled &&
-      currentProjectId !== null &&
       sourceProjectId !== null &&
       targetProjectId !== null &&
       sourceProjectId !== targetProjectId,
     queryFn: (): Promise<ProjectMigrationPrecheckReport> => {
       const request: ProjectMigrationPrecheckRequest = {
-        projectId: currentProjectId!,
+        projectId: targetProjectId!,
         sourceProjectId,
+        targetProjectId: targetProjectId!,
         snapshotToken: null,
         resourceType: ProjectMigrationResourceType.FLOW,
         cursor: null,
@@ -59,21 +56,25 @@ export function useMigrationPrecheckBootstrap({
 
 type UseMigrationResourcePageParams = {
   snapshotToken: string | null;
+  targetProjectId: string | null;
   resourceType: ProjectMigrationResourceType;
-  initialData?: InfiniteData<ProjectMigrationPrecheckReport, PageParam>;
+  initialData?: InfiniteData<
+    ProjectMigrationPrecheckReport,
+    { cursor: string | null }
+  >;
   enabled?: boolean;
 };
 
 export function useMigrationResourcePage({
   snapshotToken,
+  targetProjectId,
   resourceType,
   initialData,
   enabled = true,
 }: UseMigrationResourcePageParams) {
-  const currentProjectId = authenticationSession.getProjectId();
   return useInfiniteQuery({
     queryKey: ['migration-precheck-page', snapshotToken, resourceType] as const,
-    enabled: enabled && snapshotToken !== null && currentProjectId !== null,
+    enabled: enabled && snapshotToken !== null && targetProjectId !== null,
     initialData,
     initialPageParam: { cursor: null } satisfies PageParam,
     queryFn: async ({
@@ -82,8 +83,9 @@ export function useMigrationResourcePage({
       pageParam: PageParam;
     }): Promise<ProjectMigrationPrecheckReport> => {
       const request: ProjectMigrationPrecheckRequest = {
-        projectId: currentProjectId!,
+        projectId: targetProjectId!,
         sourceProjectId: null,
+        targetProjectId: targetProjectId!,
         snapshotToken,
         resourceType,
         cursor: pageParam.cursor,

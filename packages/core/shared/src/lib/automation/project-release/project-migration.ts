@@ -154,6 +154,7 @@ export type ProjectMigrationPrecheckReport = z.infer<typeof ProjectMigrationPrec
 export const ProjectMigrationPrecheckRequest = z.object({
     projectId: z.string(),
     sourceProjectId: Nullable(z.string()),
+    targetProjectId: z.string(),
     snapshotToken: Nullable(z.string()),
     resourceType: Nullable(z.nativeEnum(ProjectMigrationResourceType)),
     cursor: Nullable(z.string()),

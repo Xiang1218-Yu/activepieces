@@ -20,24 +20,26 @@ export const projectReleaseService = {
         const lockKey = `project-release:${params.projectId}`
         const lock = await memoryLock.acquire(lockKey)
         try {
-            const snapshot = await resolveSnapshotToken({ params, projectId, platformId, log })
-            const sourceState = snapshot ? ProjectState.parse(snapshot.sourceState) : undefined
-            const diffs = await findDiffStates({ projectId, userId: ownerId, platformId, params, log, newState: sourceState })
+            const { sourceState, targetState, targetProjectId } = await resolveStates({ projectId, userId: ownerId, platformId, params, log })
+            const diffs = await projectDiffService.diff({
+                newState: sourceState,
+                currentState: targetState,
+            })
             const flowIdsToApply = params.selectedFlowsIds ?? diffs.flows.map((flow) => flow.flowState.id)
             const filteredDiffs = await projectDiffService.filterFlows(flowIdsToApply, diffs)
             await projectStateService(log).apply({
-                projectId,
+                projectId: targetProjectId,
                 diffs: filteredDiffs,
                 log,
                 platformId,
-                sourceFolders: sourceState?.folders ?? [],
+                sourceFolders: sourceState.folders ?? [],
             })
-            const fileId = await projectStateService(log).save(projectId, params.name, log)
+            const fileId = await projectStateService(log).save(targetProjectId, params.name, log)
             const projectRelease: ProjectRelease = {
                 id: apId(),
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
-                projectId,
+                projectId: targetProjectId,
                 importedBy: ownerId,
                 fileId,
                 name: params.name,
@@ -51,9 +53,11 @@ export const projectReleaseService = {
         }
     },
     async releasePlan({ projectId, userId, platformId, params, log }: ReleasePlanParams): Promise<ProjectSyncPlan> {
-        const snapshot = await resolveSnapshotToken({ params, projectId, platformId, log })
-        const newState = snapshot ? ProjectState.parse(snapshot.sourceState) : undefined
-        const diffs = await findDiffStates({ projectId, userId, platformId, params, log, newState })
+        const { sourceState, targetState } = await resolveStates({ projectId, userId, platformId, params, log })
+        const diffs = await projectDiffService.diff({
+            newState: sourceState,
+            currentState: targetState,
+        })
         return toResponse({
             diffs,
             errors: [],
@@ -105,16 +109,24 @@ export const projectReleaseService = {
         return projectRelease
     },
 }
-async function findDiffStates({ projectId, userId, platformId, params, log, newState }: FindDiffStatesParams): Promise<DiffState> {
-    const [resolvedNewState, currentState] = await Promise.all([
-        newState ?? getStateFromCreateRequest({ projectId, userId, platformId, params, log }),
+async function resolveStates({ projectId, userId, platformId, params, log }: ResolveStatesParams): Promise<ResolvedStates> {
+    const snapshot = await resolveSnapshotToken({ params, projectId, platformId, log })
+    if (!isNil(snapshot)) {
+        return {
+            sourceState: ProjectState.parse(snapshot.sourceState),
+            targetState: ProjectState.parse(snapshot.targetState),
+            targetProjectId: snapshot.targetProjectId,
+        }
+    }
+    const [sourceState, targetState] = await Promise.all([
+        getStateFromCreateRequest({ projectId, userId, platformId, params, log }),
         projectStateService(log).getProjectState(projectId, log),
     ])
-    const diffs = await projectDiffService.diff({
-        newState: resolvedNewState,
-        currentState,
-    })
-    return diffs
+    return {
+        sourceState,
+        targetState,
+        targetProjectId: projectId,
+    }
 }
 
 async function toResponse(params: toResponseParams): Promise<ProjectSyncPlan> {
@@ -184,19 +196,20 @@ async function resolveSnapshotToken({ params, projectId, platformId, log }: { pa
     if (params.type !== ProjectReleaseType.PROJECT || isNil(params.snapshotToken)) {
         return undefined
     }
-    const snapshot = projectMigrationSnapshotService.decode({
+    const snapshot = await projectMigrationSnapshotService.decode({
         token: params.snapshotToken,
-        expectedTargetProjectId: projectId,
     })
-    if (snapshot.sourceProjectId !== params.targetProjectId) {
+    if (snapshot.targetProjectId !== projectId
+        || snapshot.sourceProjectId !== params.targetProjectId) {
         throw new ActivepiecesError({
             code: ErrorCode.VALIDATION,
             params: {
-                message: 'The precheck snapshot does not match the requested source project. Run the precheck again.',
+                message: 'The precheck snapshot does not match the requested projects. Run the precheck again.',
             },
         })
     }
     await assertTargetProjectOwnedByPlatform({ targetProjectId: snapshot.sourceProjectId, platformId, log })
+    await assertTargetProjectOwnedByPlatform({ targetProjectId: snapshot.targetProjectId, platformId, log })
     return snapshot
 }
 
@@ -239,13 +252,18 @@ type ReleasePlanParams = {
     log: FastifyBaseLogger
 }
 
-type FindDiffStatesParams = {
+type ResolveStatesParams = {
     projectId: ProjectId
     userId: ApId
     platformId: PlatformId
     params: DiffReleaseRequest | CreateProjectReleaseRequestBody
     log: FastifyBaseLogger
-    newState?: ProjectState
+}
+
+type ResolvedStates = {
+    sourceState: ProjectState
+    targetState: ProjectState
+    targetProjectId: ProjectId
 }
 
 type GetStateFromCreateRequestParams = {

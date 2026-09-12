@@ -28,7 +28,6 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { projectReleaseMutations } from '@/features/project-releases';
-import { authenticationSession } from '@/lib/authentication-session';
 
 import { OperationChange } from './operation-change';
 
@@ -358,7 +357,7 @@ const CreateReleaseDialogContent = ({
                 name: form.getValues('name'),
                 description: form.getValues('description'),
                 selectedFlowsIds: Array.from(selectedChanges),
-                projectId: authenticationSession.getProjectId()!,
+                projectId: diffRequest.projectId,
               };
               switch (diffRequest.type) {
                 case ProjectReleaseType.GIT:

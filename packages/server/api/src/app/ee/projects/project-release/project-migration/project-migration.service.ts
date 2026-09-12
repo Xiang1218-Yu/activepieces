@@ -21,6 +21,8 @@ import { projectStateService } from '../project-state/project-state.service'
 import { projectMigrationReportService } from './project-migration-report.service'
 import { projectMigrationSnapshotService } from './project-migration-snapshot.service'
 
+const WILDCARD_PIECE_VERSION = '*'
+
 export const projectMigrationService = (log: FastifyBaseLogger): {
     precheck: (params: PrecheckParams) => Promise<ProjectMigrationPrecheckReport>
 } => ({
@@ -47,7 +49,7 @@ export const projectMigrationService = (log: FastifyBaseLogger): {
             snapshot,
             availablePieceKeys,
         })
-        summary.snapshotToken = projectMigrationSnapshotService.encode({ snapshot })
+        summary.snapshotToken = await projectMigrationSnapshotService.encode({ snapshot })
 
         const resourceType = params.resourceType ?? ProjectMigrationResourceType.FLOW
         const offset = decodeOffset(params.cursor)
@@ -71,16 +73,23 @@ export const projectMigrationService = (log: FastifyBaseLogger): {
 
 async function resolveSnapshot({ params, platformId, log }: ResolveSnapshotParams): Promise<ProjectMigrationSnapshot> {
     if (!isNil(params.snapshotToken)) {
-        const decoded = projectMigrationSnapshotService.decode({
+        const decoded = await projectMigrationSnapshotService.decode({
             token: params.snapshotToken,
-            expectedTargetProjectId: params.projectId,
+            expectedTargetProjectId: params.targetProjectId,
         })
+        if (decoded.sourceProjectId === params.targetProjectId
+            || decoded.targetProjectId !== params.targetProjectId) {
+            throw new ActivepiecesError({
+                code: ErrorCode.VALIDATION,
+                params: { message: 'The precheck snapshot does not match the selected projects. Run the precheck again.' },
+            })
+        }
         await assertProjectOwnedByPlatform({ projectId: decoded.sourceProjectId, platformId, log })
         await assertProjectOwnedByPlatform({ projectId: decoded.targetProjectId, platformId, log })
         return decoded
     }
     const sourceProjectId = params.sourceProjectId
-    const targetProjectId = params.projectId
+    const targetProjectId = params.targetProjectId
     if (isNil(sourceProjectId)) {
         throw new ActivepiecesError({
             code: ErrorCode.VALIDATION,
@@ -131,6 +140,9 @@ async function resolveAvailablePieces({ sourceState, targetProjectId, platformId
             const exactVersion = flowPieceUtil.getExactVersion(step.settings.pieceVersion)
             const versions = pieceVersions.get(pieceName) ?? new Set<string>()
             versions.add(exactVersion)
+            if (step.settings.pieceVersion === WILDCARD_PIECE_VERSION) {
+                versions.add(WILDCARD_PIECE_VERSION)
+            }
             pieceVersions.set(pieceName, versions)
         }
     }
@@ -138,6 +150,10 @@ async function resolveAvailablePieces({ sourceState, targetProjectId, platformId
     const checks: Promise<void>[] = []
     for (const [pieceName, versions] of pieceVersions) {
         for (const version of versions) {
+            if (version === WILDCARD_PIECE_VERSION) {
+                checks.push(resolveWildcardPiece({ pieceName, targetProjectId, platformId, log, availableKeys }))
+                continue
+            }
             checks.push((async (): Promise<void> => {
                 const piece = await pieceMetadataService(log).get({
                     name: pieceName,
@@ -153,6 +169,18 @@ async function resolveAvailablePieces({ sourceState, targetProjectId, platformId
     }
     await Promise.all(checks)
     return availableKeys
+}
+
+async function resolveWildcardPiece({ pieceName, targetProjectId, platformId, log, availableKeys }: ResolveWildcardParams): Promise<void> {
+    const pieces = await pieceMetadataService(log).list({
+        platformId,
+        projectId: targetProjectId,
+        includeHidden: true,
+    })
+    const installedPiece = pieces.find((piece) => piece.name === pieceName)
+    if (!isNil(installedPiece)) {
+        availableKeys.add(`${pieceName}@${installedPiece.version}`)
+    }
 }
 
 function toSyncPlan(diffs: Awaited<ReturnType<typeof projectDiffService.diff>>): ProjectSyncPlan {
@@ -218,4 +246,12 @@ type ResolveAvailablePiecesParams = {
     targetProjectId: ProjectId
     platformId: PlatformId
     log: FastifyBaseLogger
+}
+
+type ResolveWildcardParams = {
+    pieceName: string
+    targetProjectId: ProjectId
+    platformId: PlatformId
+    log: FastifyBaseLogger
+    availableKeys: Set<string>
 }

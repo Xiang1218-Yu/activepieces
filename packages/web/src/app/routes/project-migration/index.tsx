@@ -14,7 +14,7 @@ import {
   Workflow,
   Plug,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { SearchableSelect } from '@/components/custom/searchable-select';
@@ -58,6 +58,11 @@ const resourceTabs: ResourceTab[] = [
   },
 ];
 
+type AppliedSelection = {
+  sourceProjectId: string;
+  targetProjectId: string;
+};
+
 export const ProjectMigrationPrecheckPage = () => {
   const { t } = useTranslation();
   const { checkAccess } = useAuthorization();
@@ -65,31 +70,44 @@ export const ProjectMigrationPrecheckPage = () => {
   const currentProjectId = authenticationSession.getProjectId();
   const { data: projects } = projectCollectionUtils.useAll();
 
-  const selectableProjects = useMemo(
-    () => (projects ?? []).filter((project) => project.id !== currentProjectId),
-    [projects, currentProjectId],
-  );
+  const projectOptions = projects ?? [];
+
+  const defaultSourceId =
+    projectOptions.find((project) => project.id !== currentProjectId)?.id ??
+    null;
 
   const [sourceProjectId, setSourceProjectId] = useState<string | null>(
-    selectableProjects[0]?.id ?? null,
+    defaultSourceId,
   );
-  const [appliedSourceProjectId, setAppliedSourceProjectId] = useState<
-    string | null
-  >(null);
+  const [targetProjectId, setTargetProjectId] = useState<string | null>(
+    currentProjectId,
+  );
+  const [appliedSelection, setAppliedSelection] =
+    useState<AppliedSelection | null>(null);
   const [activeTab, setActiveTab] = useState<ProjectMigrationResourceType>(
     ProjectMigrationResourceType.FLOW,
   );
 
-  const targetProjectId = currentProjectId;
-
   const bootstrap = useMigrationPrecheckBootstrap({
-    sourceProjectId: appliedSourceProjectId,
-    targetProjectId,
+    sourceProjectId: appliedSelection?.sourceProjectId ?? null,
+    targetProjectId: appliedSelection?.targetProjectId ?? null,
     enabled: true,
   });
 
   const bootstrapReport = bootstrap.data;
   const snapshotToken = bootstrapReport?.summary.snapshotToken ?? null;
+
+  const canRunPrecheck =
+    !isNil(sourceProjectId) &&
+    !isNil(targetProjectId) &&
+    sourceProjectId !== targetProjectId;
+
+  const runPrecheck = () => {
+    if (!canRunPrecheck || isNil(sourceProjectId) || isNil(targetProjectId)) {
+      return;
+    }
+    setAppliedSelection({ sourceProjectId, targetProjectId });
+  };
 
   const flowInitialData = bootstrapReport
     ? ({
@@ -101,22 +119,14 @@ export const ProjectMigrationPrecheckPage = () => {
       >)
     : undefined;
 
-  const canRunPrecheck =
-    !isNil(sourceProjectId) && sourceProjectId !== currentProjectId;
-
-  const runPrecheck = () => {
-    if (!canRunPrecheck) {
-      return;
-    }
-    setAppliedSourceProjectId(sourceProjectId);
-  };
-
   const sourceProjectName =
-    projects?.find((project) => project.id === appliedSourceProjectId)
-      ?.displayName ?? t('Source project');
+    projects?.find(
+      (project) => project.id === appliedSelection?.sourceProjectId,
+    )?.displayName ?? t('Source project');
   const targetProjectName =
-    projects?.find((project) => project.id === targetProjectId)?.displayName ??
-    t('Current project');
+    projects?.find(
+      (project) => project.id === appliedSelection?.targetProjectId,
+    )?.displayName ?? t('Target project');
 
   return (
     <div className="flex w-full flex-col gap-6 p-4">
@@ -133,24 +143,34 @@ export const ProjectMigrationPrecheckPage = () => {
       </div>
 
       <div className="flex flex-wrap items-end gap-4 rounded-lg border p-4">
-        <div className="flex min-w-[260px] flex-1 flex-col gap-2">
+        <div className="flex min-w-[240px] flex-1 flex-col gap-2">
           <Label>{t('Source project')}</Label>
           <SearchableSelect
             value={sourceProjectId ?? undefined}
             onChange={(value) => setSourceProjectId(value)}
             placeholder={t('Select the project to migrate from')}
-            options={selectableProjects.map((project) => ({
-              label: project.displayName,
-              value: project.id,
-            }))}
+            options={projectOptions
+              .filter((project) => project.id !== targetProjectId)
+              .map((project) => ({
+                label: project.displayName,
+                value: project.id,
+              }))}
           />
         </div>
         <ArrowRight className="size-4 mb-3 text-muted-foreground" />
-        <div className="flex min-w-[260px] flex-1 flex-col gap-2">
+        <div className="flex min-w-[240px] flex-1 flex-col gap-2">
           <Label>{t('Target project')}</Label>
-          <div className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm">
-            {targetProjectName}
-          </div>
+          <SearchableSelect
+            value={targetProjectId ?? undefined}
+            onChange={(value) => setTargetProjectId(value)}
+            placeholder={t('Select the project to migrate to')}
+            options={projectOptions
+              .filter((project) => project.id !== sourceProjectId)
+              .map((project) => ({
+                label: project.displayName,
+                value: project.id,
+              }))}
+          />
         </div>
         <Button
           onClick={runPrecheck}
@@ -160,7 +180,7 @@ export const ProjectMigrationPrecheckPage = () => {
         </Button>
       </div>
 
-      {isNil(appliedSourceProjectId) ? (
+      {isNil(appliedSelection) ? (
         <EmptySelection />
       ) : (
         <>
@@ -170,8 +190,8 @@ export const ProjectMigrationPrecheckPage = () => {
             sourceProjectName={sourceProjectName}
             targetProjectName={targetProjectName}
             snapshotToken={snapshotToken}
-            sourceProjectId={appliedSourceProjectId}
-            targetProjectId={targetProjectId ?? ''}
+            sourceProjectId={appliedSelection.sourceProjectId}
+            targetProjectId={appliedSelection.targetProjectId}
             canWriteRelease={canWriteRelease}
           />
           <Tabs
@@ -205,6 +225,7 @@ export const ProjectMigrationPrecheckPage = () => {
               >
                 <MigrationResourceTable
                   snapshotToken={snapshotToken}
+                  targetProjectId={appliedSelection.targetProjectId}
                   resourceType={tab.key}
                   initialData={
                     tab.key === ProjectMigrationResourceType.FLOW
@@ -229,10 +250,10 @@ function EmptySelection() {
   return (
     <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-20 text-muted-foreground">
       <GitBranch className="size-10" />
-      <p className="text-sm font-medium">{t('Choose a source project')}</p>
+      <p className="text-sm font-medium">{t('Choose projects to compare')}</p>
       <p className="text-xs">
         {t(
-          'Select the test project you want to migrate from and run the precheck to see the differences.',
+          'Select the source test project and the target production project, then run the precheck to see the differences.',
         )}
       </p>
     </div>

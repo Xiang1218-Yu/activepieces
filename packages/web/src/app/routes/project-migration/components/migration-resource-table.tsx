@@ -1,5 +1,6 @@
 import {
   ProjectMigrationBlockerSeverity,
+  ProjectMigrationBlockerType,
   ProjectMigrationItem,
   ProjectMigrationOperationStatus,
   ProjectMigrationPrecheckReport,
@@ -7,6 +8,7 @@ import {
 } from '@activepieces/shared';
 import { InfiniteData } from '@tanstack/react-query';
 import { AlertTriangle, PackageOpen } from 'lucide-react';
+import { Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { DataFetchErrorState } from '@/components/custom/data-fetch-error-state';
@@ -29,6 +31,7 @@ import {
 
 type MigrationResourceTableProps = {
   snapshotToken: string | null;
+  targetProjectId: string | null;
   resourceType: ProjectMigrationResourceType;
   initialData?: InfiniteData<
     ProjectMigrationPrecheckReport,
@@ -39,7 +42,10 @@ type MigrationResourceTableProps = {
   onInitialRetry: () => void;
 };
 
-const statusOrder: ProjectMigrationOperationStatus[] = [
+type ItemGroupKey = 'BLOCKED' | ProjectMigrationOperationStatus;
+
+const groupOrder: ItemGroupKey[] = [
+  'BLOCKED',
   ProjectMigrationOperationStatus.WILL_CREATE,
   ProjectMigrationOperationStatus.WILL_UPDATE,
   ProjectMigrationOperationStatus.WILL_DELETE,
@@ -48,6 +54,7 @@ const statusOrder: ProjectMigrationOperationStatus[] = [
 
 export function MigrationResourceTable({
   snapshotToken,
+  targetProjectId,
   resourceType,
   initialData,
   initialLoading,
@@ -65,6 +72,7 @@ export function MigrationResourceTable({
     refetch,
   } = useMigrationResourcePage({
     snapshotToken,
+    targetProjectId,
     resourceType,
     initialData,
   });
@@ -96,8 +104,8 @@ export function MigrationResourceTable({
 
   const pages = data?.pages ?? [];
   const summary = pages[0]?.summary;
-  const items = sortByStatus(
-    pages.flatMap((page: ProjectMigrationPrecheckReport) => page.page.data),
+  const items = pages.flatMap(
+    (page: ProjectMigrationPrecheckReport) => page.page.data,
   );
   const counts = summary?.totals[resourceType];
 
@@ -115,6 +123,7 @@ export function MigrationResourceTable({
     );
   }
 
+  const groups = groupItems(items);
   const nextCursor = pages[pages.length - 1]?.page.nextCursor ?? null;
 
   return (
@@ -128,19 +137,34 @@ export function MigrationResourceTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {items.map((item, index) => (
-            <TableRow key={getItemKey(item, index)}>
-              <TableCell className="font-medium">
-                <MigrationItemName item={item} />
-              </TableCell>
-              <TableCell>
-                <MigrationStatusBadge status={item.status} />
-              </TableCell>
-              <TableCell>
-                <BlockersCell item={item} />
-              </TableCell>
-            </TableRow>
-          ))}
+          {groupOrder.flatMap((groupKey) => {
+            const groupItems = groups[groupKey];
+            if (!groupItems || groupItems.items.length === 0) {
+              return [];
+            }
+            return (
+              <Fragment key={groupKey}>
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={3} className="bg-muted/30 py-1.5">
+                    <GroupHeader groupKey={groupKey} group={groupItems} />
+                  </TableCell>
+                </TableRow>
+                {groupItems.items.map((item, index) => (
+                  <TableRow key={getItemKey(item, index)}>
+                    <TableCell className="font-medium">
+                      <MigrationItemName item={item} />
+                    </TableCell>
+                    <TableCell>
+                      <MigrationStatusBadge status={item.status} />
+                    </TableCell>
+                    <TableCell>
+                      <BlockersCell item={item} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </Fragment>
+            );
+          })}
         </TableBody>
       </Table>
       <div className="flex items-center justify-between p-4">
@@ -162,9 +186,7 @@ export function MigrationResourceTable({
           <AlertTriangle className="size-4 shrink-0" />
           {t(
             '{{count}} object(s) have blocking issues and cannot be released until resolved',
-            {
-              count: counts.blocked,
-            },
+            { count: counts.blocked },
           )}
         </div>
       )}
@@ -172,23 +194,103 @@ export function MigrationResourceTable({
   );
 }
 
-function sortByStatus(items: ProjectMigrationItem[]): ProjectMigrationItem[] {
-  return [...items].sort((a, b) => {
-    const aBlocked = a.blockers.some(
+type ResolvedGroup = {
+  label: string;
+  count: number;
+  items: ProjectMigrationItem[];
+};
+
+function GroupHeader({
+  groupKey,
+  group,
+}: {
+  groupKey: ItemGroupKey;
+  group: ResolvedGroup;
+}) {
+  const { t } = useTranslation();
+  if (groupKey === 'BLOCKED') {
+    const hasMissingPiece = group.items.some((item) =>
+      item.blockers.some(
+        (blocker) => blocker.type === ProjectMigrationBlockerType.MISSING_PIECE,
+      ),
+    );
+    const hasMissingConnection = group.items.some((item) =>
+      item.blockers.some(
+        (blocker) =>
+          blocker.type === ProjectMigrationBlockerType.MISSING_CONNECTION,
+      ),
+    );
+    const reasons = [
+      hasMissingPiece ? t('missing piece') : null,
+      hasMissingConnection ? t('missing connection') : null,
+    ].filter(Boolean);
+    return (
+      <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-destructive">
+        <AlertTriangle className="size-3.5" />
+        {t('Blocked')} · {reasons.join(' / ')} ({group.count})
+      </span>
+    );
+  }
+  const statusLabels: Record<ProjectMigrationOperationStatus, string> = {
+    [ProjectMigrationOperationStatus.WILL_CREATE]: t('Will create'),
+    [ProjectMigrationOperationStatus.WILL_UPDATE]: t('Will update'),
+    [ProjectMigrationOperationStatus.WILL_DELETE]: t('Will delete'),
+    [ProjectMigrationOperationStatus.NO_CHANGE]: t('No change'),
+  };
+  return (
+    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {statusLabels[groupKey]} ({group.count})
+    </span>
+  );
+}
+
+function groupItems(
+  items: ProjectMigrationItem[],
+): Record<ItemGroupKey, ResolvedGroup> {
+  const empty: Record<ItemGroupKey, ProjectMigrationItem[]> = {
+    BLOCKED: [],
+    [ProjectMigrationOperationStatus.WILL_CREATE]: [],
+    [ProjectMigrationOperationStatus.WILL_UPDATE]: [],
+    [ProjectMigrationOperationStatus.WILL_DELETE]: [],
+    [ProjectMigrationOperationStatus.NO_CHANGE]: [],
+  };
+  for (const item of items) {
+    const isBlocked = item.blockers.some(
       (blocker) => blocker.severity === ProjectMigrationBlockerSeverity.BLOCKER,
-    )
-      ? 1
-      : 0;
-    const bBlocked = b.blockers.some(
-      (blocker) => blocker.severity === ProjectMigrationBlockerSeverity.BLOCKER,
-    )
-      ? 1
-      : 0;
-    if (aBlocked !== bBlocked) {
-      return bBlocked - aBlocked;
+    );
+    if (isBlocked) {
+      empty.BLOCKED.push(item);
+    } else {
+      empty[item.status].push(item);
     }
-    return statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status);
-  });
+  }
+  return {
+    BLOCKED: {
+      label: 'Blocked',
+      count: empty.BLOCKED.length,
+      items: empty.BLOCKED,
+    },
+    [ProjectMigrationOperationStatus.WILL_CREATE]: {
+      label: 'Will create',
+      count: empty[ProjectMigrationOperationStatus.WILL_CREATE].length,
+      items: empty[ProjectMigrationOperationStatus.WILL_CREATE],
+    },
+    [ProjectMigrationOperationStatus.WILL_UPDATE]: {
+      label: 'Will update',
+      count: empty[ProjectMigrationOperationStatus.WILL_UPDATE].length,
+      items: empty[ProjectMigrationOperationStatus.WILL_UPDATE],
+    },
+    [ProjectMigrationOperationStatus.WILL_DELETE]: {
+      label: 'Will delete',
+      count: empty[ProjectMigrationOperationStatus.WILL_DELETE].length,
+      items: empty[ProjectMigrationOperationStatus.WILL_DELETE],
+    },
+    [ProjectMigrationOperationStatus.NO_CHANGE]: {
+      label: 'No change',
+      count: empty[ProjectMigrationOperationStatus.NO_CHANGE].length,
+      items: empty[ProjectMigrationOperationStatus.NO_CHANGE],
+    },
+  };
 }
 
 function getItemKey(item: ProjectMigrationItem, index: number): string {
