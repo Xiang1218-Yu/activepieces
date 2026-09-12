@@ -60,7 +60,8 @@ export function getCronOccurrences({ cronExpression, timezone, windowStart, wind
     const occurrences: CronOccurrence[] = []
     let cursor: Date | null = interval.next().toDate()
     while (!isNil(cursor) && cursor.getTime() < windowEnd.getTime()) {
-        occurrences.push(describeOccurrence({ date: cursor, timezone, previous: occurrences.length > 0 ? occurrences[occurrences.length - 1] : null }))
+        const previous = occurrences.length > 0 ? occurrences[occurrences.length - 1] : null
+        occurrences.push(describeOccurrence({ date: cursor, timezone, previous }))
         if (occurrences.length >= TriggerCalendarMaxOccurrencesPerTrigger) {
             break
         }
@@ -71,20 +72,12 @@ export function getCronOccurrences({ cronExpression, timezone, windowStart, wind
 
 function describeOccurrence({ date, timezone, previous }: DescribeOccurrenceParams): CronOccurrence {
     const utcOffsetMinutes = getOffsetMinutes({ date, timezone })
-    const dstTransition = previous
-        ? previous.utcOffsetMinutes !== utcOffsetMinutes
-        : offsetChangesWithin24Hours({ date, timezone })
+    const dstTransition = !isNil(previous) && previous.utcOffsetMinutes !== utcOffsetMinutes
     return {
         time: date.toISOString(),
         utcOffsetMinutes,
         dstTransition,
     }
-}
-
-function offsetChangesWithin24Hours({ date, timezone }: { date: Date, timezone: string }): boolean {
-    const offsetAtOccurrence = getOffsetMinutes({ date, timezone })
-    const offsetDayBefore = getOffsetMinutes({ date: new Date(date.getTime() - 24 * 60 * 60 * 1000), timezone })
-    return offsetAtOccurrence !== offsetDayBefore
 }
 
 function getOffsetMinutes({ date, timezone }: { date: Date, timezone: string }): number {

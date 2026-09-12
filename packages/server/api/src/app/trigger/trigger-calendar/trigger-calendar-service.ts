@@ -1,6 +1,11 @@
-import { isNil } from '@activepieces/core-utils'
+import { ActivepiecesError, ErrorCode, isNil, Permission } from '@activepieces/core-utils'
 import {
+    ApEdition,
+    FlowOperationStatus,
+    FlowStatus,
     GetTriggerCalendarRequest,
+    Principal,
+    PrincipalType,
     ScheduleOptions,
     TriggerCalendarConflict,
     TriggerCalendarIssue,
@@ -16,8 +21,12 @@ import {
 } from '@activepieces/shared'
 import { FastifyBaseLogger } from 'fastify'
 import { repoFactory } from '../../core/db/repo-factory'
+import { getPrincipalRoleOrThrow } from '../../ee/authentication/project-role/rbac-middleware'
+import { system } from '../../helper/system/system'
 import { TriggerSourceEntity } from '../trigger-source/trigger-source-entity'
 import { getCronOccurrences, validateCronSchedule } from './cron-occurrence-helper'
+
+const EDITION_REQUIRES_RBAC = [ApEdition.CLOUD, ApEdition.ENTERPRISE].includes(system.getEdition())
 
 const triggerCalendarRepo = repoFactory(TriggerSourceEntity)
 
@@ -36,13 +45,23 @@ export type CalendarSourceRow = {
 
 export const triggerCalendarService = (log: FastifyBaseLogger): TriggerCalendarService => ({
     async getCalendar(params: GetCalendarParams): Promise<TriggerCalendarResponse> {
-        const { projectId, request } = params
+        const { projectId, request, principal } = params
         const now = new Date()
         const days = request.days ?? TriggerCalendarWindowDefaultDays
         const windowStart = now
         const windowEnd = new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
 
-        const rows = await queryEnabledSources({ projectId, request })
+        const canReadFlows = await principalCanReadFlows({ projectId, principal, log })
+        if (isNil(canReadFlows)) {
+            return emptyCalendar({ windowStart, windowEnd, now })
+        }
+
+        // All enabled, published trigger sources matching the requested filters.
+        // The visibility partition is applied in memory so that restrictedCount
+        // reflects the exact same flow/folder slice the caller asked for.
+        const candidateRows = await queryEnabledSources({ projectId, request })
+        const rows = canReadFlows ? candidateRows : []
+        const restrictedCount = canReadFlows ? 0 : candidateRows.length
 
         const scheduled: TriggerCalendarTrigger[] = []
         const nonScheduled: TriggerCalendarTrigger[] = []
@@ -132,6 +151,7 @@ export const triggerCalendarService = (log: FastifyBaseLogger): TriggerCalendarS
             occurrences: occurrences.length,
             conflicts: conflicts.length,
             issues: issues.length,
+            restrictedCount,
         }, '[triggerCalendarService#getCalendar] computed trigger calendar')
 
         return {
@@ -143,12 +163,58 @@ export const triggerCalendarService = (log: FastifyBaseLogger): TriggerCalendarS
             conflicts,
             issues,
             nonScheduled,
-            restrictedCount: 0,
+            restrictedCount,
         }
     },
 })
 
-async function queryEnabledSources({ projectId, request }: { projectId: string, request: GetTriggerCalendarRequest }): Promise<CalendarSourceRow[]> {
+// True when the principal may read every flow in the project; false when it is
+// a project member whose role lacks READ_FLOW; null for callers with no project
+// membership at all (the route membership guard normally prevents reaching this).
+async function principalCanReadFlows(params: {
+    projectId: string
+    principal: Principal
+    log: FastifyBaseLogger
+}): Promise<boolean | null> {
+    const { projectId, principal, log } = params
+    if (principal.type === PrincipalType.SERVICE || principal.type === PrincipalType.ENGINE || !EDITION_REQUIRES_RBAC) {
+        return true
+    }
+    if (principal.type !== PrincipalType.USER) {
+        return false
+    }
+    let role
+    try {
+        role = await getPrincipalRoleOrThrow(principal.id, projectId, log)
+    }
+    catch (error) {
+        if (error instanceof ActivepiecesError && error.error.code === ErrorCode.AUTHORIZATION) {
+            return null
+        }
+        throw error
+    }
+    return role.permissions.includes(Permission.READ_FLOW)
+}
+
+function emptyCalendar(params: { windowStart: Date, windowEnd: Date, now: Date }): TriggerCalendarResponse {
+    return {
+        generatedAt: params.now.toISOString(),
+        windowStart: params.windowStart.toISOString(),
+        windowEnd: params.windowEnd.toISOString(),
+        scheduled: [],
+        occurrences: [],
+        conflicts: [],
+        issues: [],
+        nonScheduled: [],
+        restrictedCount: 0,
+    }
+}
+
+async function queryEnabledSources(params: {
+    projectId: string
+    request: GetTriggerCalendarRequest
+}): Promise<CalendarSourceRow[]> {
+    const { projectId, request } = params
     const query = triggerCalendarRepo()
         .createQueryBuilder('ts')
         .innerJoin('flow', 'flow', 'flow.id = ts."flowId"')
@@ -169,10 +235,11 @@ async function queryEnabledSources({ projectId, request }: { projectId: string, 
         .where('ts."projectId" = :projectId', { projectId })
         .andWhere('ts.simulate = false')
         .andWhere('ts.deleted IS NULL')
-        .andWhere('flow."operationStatus" != :deleting', { deleting: 'DELETING' })
+        .andWhere('flow.status = :enabled', { enabled: FlowStatus.ENABLED })
+        .andWhere('flow."operationStatus" != :deleting', { deleting: FlowOperationStatus.DELETING })
 
     if (!isNil(request.flowIds) && request.flowIds.length > 0) {
-        query.andWhere('ts."flowId" IN (:...flowIds)', { flowIds: request.flowIds })
+        query.andWhere('ts."flowId" IN (:...requestedFlowIds)', { requestedFlowIds: request.flowIds })
     }
     if (!isNil(request.folderIds) && request.folderIds.length > 0) {
         if (request.folderIds.includes(UncategorizedFolderId)) {
@@ -274,7 +341,7 @@ function toIssue(params: ToIssueParams): TriggerCalendarIssue {
     }
 }
 
-function buildConflicts(occurrences: TriggerCalendarOccurrence[]): TriggerCalendarConflict[] {
+export function buildConflicts(occurrences: TriggerCalendarOccurrence[]): TriggerCalendarConflict[] {
     const conflicts: TriggerCalendarConflict[] = []
     let index = 0
     while (index < occurrences.length) {
@@ -299,6 +366,7 @@ function buildConflicts(occurrences: TriggerCalendarOccurrence[]): TriggerCalend
 
 type GetCalendarParams = {
     projectId: string
+    principal: Principal
     request: GetTriggerCalendarRequest
 }
 

@@ -1,5 +1,4 @@
 import {
-  TriggerCalendarOccurrence,
   TriggerCalendarResponse,
   TriggerCalendarTrigger,
 } from '@activepieces/shared';
@@ -10,22 +9,12 @@ import { Link } from 'react-router-dom';
 
 import { authenticationSession } from '@/lib/authentication-session';
 
+import { CalendarDayBucket, buildDayBuckets } from '../lib/day-buckets';
 import { triggerCalendarTimeUtils as timeUtils } from '../lib/time-utils';
 
 type CalendarGridProps = {
   calendar: TriggerCalendarResponse;
   displayTimezone: string;
-};
-
-type DayBucket = {
-  dayKey: string;
-  label: string;
-  occurrences: Array<{
-    occurrence: TriggerCalendarOccurrence;
-    flowName: string;
-    instanceTimezone: string | null;
-    conflict: boolean;
-  }>;
 };
 
 export function TriggerCalendarGrid({
@@ -50,15 +39,24 @@ export function TriggerCalendarGrid({
     return set;
   }, [calendar.conflicts]);
 
-  const days = useMemo(
+  const days: CalendarDayBucket[] = useMemo(
     () =>
       buildDayBuckets({
         occurrences: calendar.occurrences,
         flowById,
         conflictingFlowIds,
         displayTimezone,
+        windowStartIso: calendar.windowStart,
+        windowEndIso: calendar.windowEnd,
       }),
-    [calendar.occurrences, flowById, conflictingFlowIds, displayTimezone],
+    [
+      calendar.occurrences,
+      calendar.windowStart,
+      calendar.windowEnd,
+      flowById,
+      conflictingFlowIds,
+      displayTimezone,
+    ],
   );
 
   if (calendar.scheduled.length === 0) {
@@ -140,36 +138,4 @@ export function TriggerCalendarGrid({
       ))}
     </div>
   );
-}
-
-function buildDayBuckets(params: {
-  occurrences: TriggerCalendarOccurrence[];
-  flowById: Map<string, TriggerCalendarTrigger>;
-  conflictingFlowIds: Set<string>;
-  displayTimezone: string;
-}): DayBucket[] {
-  const { occurrences, flowById, conflictingFlowIds, displayTimezone } = params;
-  const buckets = new Map<string, DayBucket>();
-  for (const occurrence of occurrences) {
-    const dayKey = timeUtils.dayKeyInZone(occurrence.time, displayTimezone);
-    const trigger = flowById.get(occurrence.flowId);
-    if (!trigger) {
-      continue;
-    }
-    const bucket = buckets.get(dayKey) ?? {
-      dayKey,
-      label: timeUtils.dayLabelInZone(occurrence.time, displayTimezone),
-      occurrences: [],
-    };
-    bucket.occurrences.push({
-      occurrence,
-      flowName: trigger.flowName,
-      instanceTimezone: trigger.timezone,
-      conflict: conflictingFlowIds.has(
-        `${occurrence.time}|${occurrence.flowId}`,
-      ),
-    });
-    buckets.set(dayKey, bucket);
-  }
-  return [...buckets.values()].sort((a, b) => a.dayKey.localeCompare(b.dayKey));
 }

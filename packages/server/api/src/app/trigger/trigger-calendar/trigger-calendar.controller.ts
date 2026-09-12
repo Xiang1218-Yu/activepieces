@@ -1,4 +1,3 @@
-import { Permission } from '@activepieces/core-utils'
 import { GetTriggerCalendarRequest, PrincipalType, SERVICE_KEY_SECURITY_OPENAPI, TriggerCalendarResponse } from '@activepieces/shared'
 import { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { StatusCodes } from 'http-status-codes'
@@ -10,16 +9,19 @@ export const triggerCalendarController: FastifyPluginAsyncZod = async (app) => {
     app.get('/calendar', GetTriggerCalendarOptions, async (request) => {
         return triggerCalendarService(request.log).getCalendar({
             projectId: request.projectId,
+            principal: request.principal,
             request: request.query,
         })
     })
 }
 
+// Project membership is required, but READ_FLOW is intentionally enforced inside the
+// service: members without READ_FLOW still receive the restrictedCount summary.
 const GetTriggerCalendarOptions = {
     config: {
         security: securityAccess.project(
             [PrincipalType.USER, PrincipalType.SERVICE],
-            Permission.READ_FLOW, {
+            undefined, {
                 type: ProjectResourceType.QUERY,
             }),
     },

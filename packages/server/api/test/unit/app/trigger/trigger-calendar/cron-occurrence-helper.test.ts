@@ -69,6 +69,29 @@ describe('cron-occurrence-helper', () => {
             expect(occurrences.find((occurrence) => occurrence.time.startsWith('2026-11-02'))?.dstTransition).toBe(true)
         })
 
+        it('does not flag DST before any offset change has been observed', () => {
+            const occurrences = getCronOccurrences({
+                cronExpression: '30 2 * * *',
+                timezone: 'Australia/Sydney',
+                windowStart: new Date('2026-10-02T00:00:00.000Z'),
+                windowEnd: new Date('2026-10-03T00:00:00.000Z'),
+            })
+            expect(occurrences).toHaveLength(1)
+            expect(occurrences[0].dstTransition).toBe(false)
+        })
+
+        it('marks the first offset change after the transition day', () => {
+            const occurrences = getCronOccurrences({
+                cronExpression: '30 2 * * *',
+                timezone: 'Australia/Sydney',
+                windowStart: new Date('2026-10-02T00:00:00.000Z'),
+                windowEnd: new Date('2026-10-05T00:00:00.000Z'),
+            })
+            const flagged = occurrences.filter((occurrence) => occurrence.dstTransition)
+            expect(flagged).toHaveLength(1)
+            expect(flagged[0].time.startsWith('2026-10-03')).toBe(true)
+        })
+
         it('does not flag DST for fixed-offset timezones', () => {
             const occurrences = getCronOccurrences({
                 cronExpression: '0 * * * *',
