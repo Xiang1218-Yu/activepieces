@@ -1,4 +1,4 @@
-import { ActivepiecesError, apId, Cursor, ErrorCode, FlowId, FlowRunId, FlowVersionId, isNil, PlatformId, ProjectId, SeekPage } from '@activepieces/core-utils'
+import { ActivepiecesError, apId, Cursor, ErrorCode, FlowId, FlowRunId, FlowVersionId, isNil, PlatformId, ProjectId, SeekPage, spreadIfDefined } from '@activepieces/core-utils'
 import { apDayjs, wideEvent } from '@activepieces/server-utils'
 import { ExecuteFlowJobData, ExecutionType, ExecutioOutputFile, FileCompression, FileType, FlowRetryStrategy, FlowRun, FlowRunCountByStatus, FlowRunStatus, FlowRunWithRetryError, FlowVersion, GenericStepOutput, isFlowRunStateTerminal, JobPayload, LATEST_JOB_DATA_SCHEMA_VERSION, logSerializer, LogSliceRef, ResumeReason, RunEnvironment, RunInternalError, SampleDataFileType, StepOutput, StepOutputStatus, StepOutputType, StreamStepProgress, WorkerJobType } from '@activepieces/shared'
 import { FastifyBaseLogger } from 'fastify'
@@ -22,6 +22,7 @@ import { flowService } from '../flow/flow.service'
 import { flowVersionService } from '../flow-version/flow-version.service'
 import { sampleDataService } from '../step-run/sample-data.service'
 import { FlowRunEntity } from './flow-run-entity'
+import { flowRunReplayService } from './flow-run-replay-service'
 import { flowRunSideEffects } from './flow-run-side-effects'
 import { runsMetadataQueue } from './flow-runs-queue'
 
@@ -376,6 +377,52 @@ export const flowRunService = (log: FastifyBaseLogger) => ({
             streamStepProgress: StreamStepProgress.WEBSOCKET,
             sampleData: !isNil(stepNameToTest) ? await sampleDataService(log).getSampleDataForFlow(projectId, flowVersion, SampleDataFileType.OUTPUT) : undefined,
         }, log)
+    },
+    async replay({ flowRunId, projectId, triggeredBy }: ReplayParams): Promise<FlowRun> {
+        const sourceRun = await this.getOnePopulatedOrThrow({
+            id: flowRunId,
+            projectId,
+        })
+        const { payload, flowVersion, executeTrigger } = await flowRunReplayService(log).resolveTriggerPayload({ sourceRun, projectId })
+
+        const replayRun = await queueOrCreateInstantly({
+            projectId,
+            flowId: sourceRun.flowId,
+            flowVersionId: flowVersion.id,
+            environment: RunEnvironment.TESTING,
+            parentRunId: undefined,
+            failParentOnFailure: undefined,
+            stepNameToTest: undefined,
+            triggeredBy,
+            replayOfRunId: sourceRun.id,
+        }, log)
+
+        log.info({
+            flowRun: { id: replayRun.id, replayOfRunId: sourceRun.id },
+            flow: { id: sourceRun.flowId },
+            flowVersion: { id: flowVersion.id },
+        }, 'Flow run replay started as independent test run')
+
+        const platformId = await projectService(log).getPlatformId(projectId)
+        await addToQueue({
+            flowRun: replayRun,
+            payload,
+            executeTrigger,
+            executionType: ExecutionType.BEGIN,
+            workerHandlerId: undefined,
+            httpRequestId: undefined,
+            platformId,
+            streamStepProgress: StreamStepProgress.WEBSOCKET,
+            sampleData: undefined,
+        }, log)
+        await flowRunSideEffects(log).onReplay({ flowRun: replayRun, platformId })
+        return replayRun
+    },
+    async listReplays({ flowRunId, projectId }: ListReplaysParams): Promise<FlowRun[]> {
+        return flowRunRepo().findBy({
+            replayOfRunId: flowRunId,
+            projectId,
+        })
     },
     async startManualTrigger({ projectId, flowVersionId, triggeredBy }: StartManualTriggerParams): Promise<FlowRun> {
         const flowVersion = await flowVersionService(log).getOneOrThrow(flowVersionId)
@@ -761,6 +808,7 @@ async function queueOrCreateInstantly(params: CreateParams, log: FastifyBaseLogg
         tags: [],
         steps: {},
         triggeredBy: params.triggeredBy,
+        ...spreadIfDefined('replayOfRunId', params.replayOfRunId),
     }
     switch (params.environment) {
         case RunEnvironment.TESTING:
@@ -785,6 +833,7 @@ type CreateParams = {
     stepNameToTest?: string
     flowId: FlowId
     environment: RunEnvironment
+    replayOfRunId?: FlowRunId
 }
 
 type ListParams = {
@@ -883,6 +932,17 @@ type StartManualTriggerParams = {
     projectId: ProjectId
     flowVersionId: FlowVersionId
     triggeredBy: string
+}
+
+type ReplayParams = {
+    flowRunId: FlowRunId
+    projectId: ProjectId
+    triggeredBy?: string
+}
+
+type ListReplaysParams = {
+    flowRunId: FlowRunId
+    projectId: ProjectId
 }
 type RetryParams = {
     flowRunId: FlowRunId

@@ -2,9 +2,11 @@ import { SeekPage } from '@activepieces/core-utils';
 import {
   CountFlowRunsByStatusRequest,
   CountFlowRunsByStatusResponse,
+  CreateReplayRequestBody,
   FlowRun,
   FlowRunWithRetryError,
   ListFlowRunsRequestQuery,
+  PrepareReplayResponse,
   RetryFlowRequestBody,
   TestFlowRunRequestBody,
   WebsocketServerEvent,
@@ -50,6 +52,24 @@ export const flowRunsApi = {
   },
   retry(flowRunId: string, request: RetryFlowRequestBody): Promise<FlowRun> {
     return api.post<FlowRun>(`/v1/flow-runs/${flowRunId}/retry`, request);
+  },
+  prepareReplay(flowRunId: string): Promise<PrepareReplayResponse> {
+    return api.post<PrepareReplayResponse>(
+      `/v1/flow-runs/${flowRunId}/replay/prepare`,
+      {},
+    );
+  },
+  createReplay(
+    flowRunId: string,
+    request: CreateReplayRequestBody,
+  ): Promise<FlowRun> {
+    return api.post<FlowRun>(
+      `/v1/flow-runs/${flowRunId}/replay`,
+      request,
+    );
+  },
+  listReplays(flowRunId: string): Promise<FlowRun[]> {
+    return api.get<FlowRun[]>(`/v1/flow-runs/${flowRunId}/replays`);
   },
   async subscribeToTestFlowOrManualRun(
     socket: Socket,

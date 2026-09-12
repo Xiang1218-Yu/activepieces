@@ -19,7 +19,11 @@ export function createResolver({ apiClient, basePath, getSettings, log }: Create
             let flowVersion: FlowVersion | undefined
 
             if (!isNil(input.flow)) {
-                const resolved = await flowProvisioning(log, apiClient, basePath, getSettings).resolve({ flow: input.flow, platformId: input.platformId })
+                const resolved = await flowProvisioning(log, apiClient, basePath, getSettings).resolve({
+                    flow: input.flow,
+                    platformId: input.platformId,
+                    allowFlowDisable: input.allowFlowDisable ?? true,
+                })
                 if (resolved.kind === 'flow-not-found') {
                     return { kind: 'flow-not-found' }
                 }

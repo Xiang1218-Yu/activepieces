@@ -2,7 +2,6 @@ import { Permission, isNil } from '@activepieces/core-utils';
 import {
   FlowRunStatus,
   WebsocketClientEvent,
-  RunEnvironment,
   isFlowRunStateTerminal,
 } from '@activepieces/shared';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -56,7 +55,6 @@ const useListenToExistingRun = () => {
     },
     enabled:
       !isNil(run) &&
-      run.environment === RunEnvironment.PRODUCTION &&
       !isFlowRunStateTerminal({
         status: run.status,
         ignoreInternalError: false,

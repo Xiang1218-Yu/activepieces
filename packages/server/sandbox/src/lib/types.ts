@@ -19,6 +19,9 @@ export type ResolveInput = {
     flow?: { id: string, versionId: string, projectId: string }
     pieces?: PiecePackage[]
     codes?: CodeArtifact[]
+    // When false, a missing piece fails this resolution without disabling the production flow.
+    // Test runs (flow replay / builder test runs) must never toggle the production enable state.
+    allowFlowDisable?: boolean
 }
 
 export type ResolveResult =

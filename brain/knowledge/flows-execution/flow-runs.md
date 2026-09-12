@@ -15,6 +15,7 @@ A Flow Run records one execution of a specific flow version, from trigger to ter
 
 ### How it works
 - **Endpoints**: `GET /` (cursor paginated by composite `(created DESC, id DESC)`, filters incl. `failedStepMessage` ILIKE), `GET /:id`, `POST /:id/retry`, `POST /retry|cancel|archive` (bulk), waitpoint resume routes.
+- **Replay (Run Replay Workbench)**: `POST /:id/replay/prepare` + `POST /:id/replay` + `GET /:id/replays`. Preparing loads the **exact historical FlowVersion** the source run executed, walks `getAllSteps` and returns the ordered step range plus pre-start **blockers** (`TRIGGER_PAYLOAD_MISSING`, `TRIGGER_INPUT_FILE_EXPIRED`, `CONNECTION_MISSING/ERROR`, `PIECE_UNAVAILABLE`). Trigger output is materialized from `FLOW_RUN_LOG_SLICE` when sliced, and every embedded `/v1/files/<id>` URL + `fileId`/`x-ap-file-id` ref is existence-checked against `FLOW_STEP_FILE`. Creating a replay queues an **independent TESTING run** (`environment=TESTING`, `streamStepProgress=WEBSOCKET`) with `flow_run.replayOfRunId` pointing at the source; no credits are billed (TESTING skips billing) and production enable state is untouched — worker resolution only reads the pinned version, and a missing piece must NOT call `disableFlow` for TESTING (`ResolveInput.allowFlowDisable`, execute-flow passes `data.environment === PRODUCTION`). Failed-trigger replays pass `executeTrigger: true` like retries. Replay runs don't appear in the production runs list (hardcoded `environment=PRODUCTION`); the source↔replay link is shown via the `replayOfRunId` badge and `GET /:id/replays` chips on the run details page. Fires `flow.run.replayed` audit event.
 - **Retry strategies**: `FROM_FAILED_STEP` (rebuild context from logs, re-run from failure, prior outputs kept) or `ON_LATEST_VERSION` (fresh run on current published version). Both resolve the trigger payload via `resolveStepOutput`. If the trigger itself failed, they switch to `executeTrigger: true` to reprocess the raw event.
 - **Pause/resume (V1 waitpoints)**: pieces call `createWaitpoint` + `waitForWaitpoint`. DELAY upserts a `RESUME_DELAY_WAITPOINT` BullMQ job; WEBHOOK resumes on an HTTP call to `/:id/waitpoints/:waitpointId[/sync]`.
 - Logs backed up every 15s during execution for crash recovery; uploaded via 7-day JWT-signed URLs.
@@ -44,15 +45,16 @@ CE has full run tracking. Cloud may enforce retention windows; bulk-retry admin 
 ### Key files
 Entry point: `flowRunService`, defined in `flow-run-service.ts` and wired through `flow-run-module.ts`.
 
-- `packages/server/api/src/app/flows/flow-run/` — controller, service, entity, hooks, side effects, runs queue, AI usage extractor/tracker
+- `packages/server/api/src/app/flows/flow-run/` — controller, service, entity, hooks, side effects, runs queue, AI usage extractor/tracker, replay service (`flow-run-replay-service.ts`)
 - `packages/server/api/src/app/waitpoints/` — the waitpoint module: entity, service, resume routes, the `/confirm` page, its theme hooks, and the `RESUME_DELAY_WAITPOINT` handler
 - `packages/core/execution/src/lib/flow-run/` — `FlowRun` type, request dtos, execution types (`StepOutput`, `FlowExecution`), zstd log serializer
 - `packages/server/engine/src/lib/helper/logging-utils.ts` — produces the truncated-input placeholder the web run-details tab detects
 - `packages/server/api/src/app/ee/license-key-usage-report/` — daily EE job emitting per-platform run counts to PostHog (`TOTAL_RUNS_PER_DAY`, captured and flushed in platform batches)
-- `packages/web/src/features/flow-runs/` — `flowRunsApi`, run query/mutation hooks, runs table and its dialogs
+- `packages/web/src/features/flow-runs/` — `flowRunsApi`, run query/mutation hooks, runs table and its dialogs, replay workbench dialog/banner/button
 - `packages/web/src/app/routes/runs/` — runs list and run detail pages
 - `packages/web/src/app/builder/run-details/` — step input/output inspector inside the builder
-- `packages/web/src/app/builder/run-list/` — recent runs sidebar in the builder
+- `packages/web/src/app/builder/run-list/` — recent runs sidebar in the builder (replay entry in the run card menu)
+- `packages/web/src/app/builder/flow-canvas/widgets/run-info-widget.tsx` — run details banner with replay button + source/replay association UI
 - `packages/web/src/app/builder/state/` — run state and canvas state, including live-follow control
 
 Paths verified 2026-07-26. An earlier version pointed at `packages/core/shared/src/lib/automation/flow-run/` (moved to `packages/core/execution/src/lib/flow-run/`) and `packages/server/api/src/app/ee/flow-run-tracking/` (renamed to `packages/server/api/src/app/ee/billing-usage-report/`, then to `packages/server/api/src/app/ee/license-key-usage-report/`).

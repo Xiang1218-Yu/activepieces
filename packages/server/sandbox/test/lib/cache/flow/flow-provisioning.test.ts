@@ -155,4 +155,19 @@ describe('flowProvisioning.resolve', () => {
             expect(resolved.failedStep?.message).toContain('turned off')
         }
     })
+
+    it('missing piece with allowFlowDisable=false → disabled result but no production disable side effect', async () => {
+        const disableFlow = vi.fn(async () => undefined)
+        const apiClient = {
+            async getFlowBundle() { return null },
+            async getFlowVersion() { return flowWithPiece() },
+            async getPiece() { return null },
+            disableFlow,
+        } as unknown as WorkerToApiContract
+
+        const resolved = await flowProvisioning(fakeLog, apiClient, uniqueBasePath(), getSettings).resolve({ flow, platformId: 'plat1', allowFlowDisable: false })
+
+        expect(resolved.kind).toBe('disabled')
+        expect(disableFlow).not.toHaveBeenCalled()
+    })
 })

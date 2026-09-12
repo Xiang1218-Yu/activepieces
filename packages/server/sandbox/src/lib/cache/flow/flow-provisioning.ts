@@ -8,7 +8,7 @@ import { flowCache } from './flow-cache'
 import { flowSteps } from './flow-steps'
 
 export const flowProvisioning = (log: ApLogger, apiClient: WorkerToApiContract, basePath: string, getSettings: () => SandboxSettings) => ({
-    async resolve({ flow, platformId }: ResolveParams): Promise<ResolvedFlow> {
+    async resolve({ flow, platformId, allowFlowDisable = true }: ResolveParams): Promise<ResolvedFlow> {
         // A bundle is an optimization: never let a fetch error fail the run — fall through to resolve.
         // Timed as flowBundleDownloadMs so a run's breakdown shows the bundle fetch cost.
         const { data: bundle, error: bundleError } = await tryCatch(() => wideEvent.timed({
@@ -36,10 +36,12 @@ export const flowProvisioning = (log: ApLogger, apiClient: WorkerToApiContract, 
             if (!(error instanceof PieceNotFoundError)) {
                 throw error
             }
-            log.warn({ error: String(error), flow: { id: flow.id } }, 'Flow disabled due to missing piece')
-            const { error: disableError } = await tryCatch(() => apiClient.disableFlow({ flowId: flow.id, projectId: flow.projectId }))
-            if (disableError) {
-                log.error({ error: String(disableError), flow: { id: flow.id } }, 'Failed to disable flow after missing piece')
+            log.warn({ error: String(error), flow: { id: flow.id }, allowFlowDisable }, 'Flow resolution failed due to missing piece')
+            if (allowFlowDisable) {
+                const { error: disableError } = await tryCatch(() => apiClient.disableFlow({ flowId: flow.id, projectId: flow.projectId }))
+                if (disableError) {
+                    log.error({ error: String(disableError), flow: { id: flow.id } }, 'Failed to disable flow after missing piece')
+                }
             }
             return { kind: 'disabled', failedStep: buildMissingPieceFailedStep({ flowVersion, missingPiece: error }) }
         }
@@ -111,6 +113,7 @@ function extractCodeArtifacts(flowVersion: FlowVersion): CodeArtifact[] {
 type ResolveParams = {
     flow: { id: string, versionId: string, projectId: string }
     platformId: string
+    allowFlowDisable?: boolean
 }
 
 type ResolvePiecesParams = {

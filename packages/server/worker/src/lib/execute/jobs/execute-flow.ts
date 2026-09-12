@@ -1,7 +1,7 @@
 import { inspect } from 'node:util'
 import { ActivepiecesError, ErrorCode, isNil, spreadIfDefined, tryCatch } from '@activepieces/core-utils'
 import { onCallService } from '@activepieces/server-utils'
-import { BeginExecuteFlowOperation, EngineOperationType, EngineResponseStatus, ExecuteFlowJobData, ExecutionType, FailedStep, FlowActionType, FlowRunStatus, flowStructureUtil, FlowVersion, ResumeExecuteFlowOperation, RunInternalError, RunInternalErrorSource, WorkerJobType } from '@activepieces/shared'
+import { BeginExecuteFlowOperation, EngineOperationType, EngineResponseStatus, ExecuteFlowJobData, ExecutionType, FailedStep, FlowActionType, FlowRunStatus, flowStructureUtil, FlowVersion, ResumeExecuteFlowOperation, RunEnvironment, RunInternalError, RunInternalErrorSource, WorkerJobType } from '@activepieces/shared'
 import { system, WorkerSystemProp } from '../../config/configs'
 import { workerSettings } from '../../config/worker-settings'
 import { FireAndForgetJobResult, JobContext, JobHandler, JobResultKind } from '../types'
@@ -13,7 +13,13 @@ export const executeFlowJob: JobHandler<ExecuteFlowJobData, FireAndForgetJobResu
         const timeoutInSeconds = workerSettings.getSettings().FLOW_TIMEOUT_SECONDS
 
         const { data: resolved, error: provisionError } = await tryCatch(() =>
-            ctx.resolver.resolve({ platformId: data.platformId, publicApiUrl: ctx.publicApiUrl, engineToken: ctx.engineToken, flow: { id: data.flowId, versionId: data.flowVersionId, projectId: data.projectId } }),
+            ctx.resolver.resolve({
+                platformId: data.platformId,
+                publicApiUrl: ctx.publicApiUrl,
+                engineToken: ctx.engineToken,
+                flow: { id: data.flowId, versionId: data.flowVersionId, projectId: data.projectId },
+                allowFlowDisable: data.environment === RunEnvironment.PRODUCTION,
+            }),
         )
         if (provisionError) {
             await reportFlowStatus({ ctx, data, status: FlowRunStatus.INTERNAL_ERROR, internalError: toInternalError(RunInternalErrorSource.WORKER, provisionError) })

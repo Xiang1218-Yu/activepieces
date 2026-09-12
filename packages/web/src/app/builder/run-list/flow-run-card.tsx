@@ -7,7 +7,7 @@ import {
   isFlowRunStateTerminal,
 } from '@activepieces/shared';
 import { t } from 'i18next';
-import { Eye, Repeat, Timer } from 'lucide-react';
+import { Eye, History, Repeat, Timer } from 'lucide-react';
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -28,6 +28,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { flowRunUtils } from '@/features/flow-runs';
+import { ReplayRunButton } from '@/features/flow-runs/components/replay-run-button';
 import { flowRunMutations } from '@/features/flow-runs/hooks/flow-run-hooks';
 import { useAuthorization } from '@/hooks/authorization-hooks';
 import { authenticationSession } from '@/lib/authentication-session';
@@ -52,6 +53,7 @@ const FlowRunCard = React.memo(
 
     const [isRetryDropdownOpen, setIsRetryDropdownOpen] =
       useState<boolean>(false);
+    const [isReplayOpen, setIsReplayOpen] = useState<boolean>(false);
     const { mutate: retryRun, isPending: isRetryingRun } =
       flowRunMutations.useRetryRun({
         onSuccess: ({ run }) => {
@@ -101,6 +103,14 @@ const FlowRunCard = React.memo(
               includeTime={true}
               className="text-sm font-medium leading-none select-none cursor-default"
             ></FormattedDate>
+            {run.replayOfRunId && (
+              <Tooltip>
+                <TooltipTrigger>
+                  <History className="h-3.5 w-3.5 text-primary" />
+                </TooltipTrigger>
+                <TooltipContent>{t('Replay test run')}</TooltipContent>
+              </Tooltip>
+            )}
             {run.id === viewedRunId && <Eye className="w-3.5 h-3.5"></Eye>}
           </div>
           {isFlowRunStateTerminal({
@@ -208,11 +218,33 @@ const FlowRunCard = React.memo(
                       </div>
                     </DropdownMenuItem>
                   )}
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsRetryDropdownOpen(false);
+                      setIsReplayOpen(true);
+                    }}
+                    className="cursor-pointer"
+                  >
+                    <div className="flex flex-row gap-2 items-center">
+                      <History className="size-4" />
+                      <span>{t('Replay in workbench')}</span>
+                    </div>
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </PermissionNeededTooltip>
           )}
         </div>
+        {isReplayOpen && (
+          <ReplayRunButton
+            run={run}
+            variant="none"
+            open={isReplayOpen}
+            onOpenChange={setIsReplayOpen}
+          />
+        )}
       </CardListItem>
     );
   },

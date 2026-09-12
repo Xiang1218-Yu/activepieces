@@ -19,6 +19,8 @@ import {
   isTimelineEmpty,
   TimelineBar,
 } from '@/features/flow-runs/components/timeline-bar';
+import { ReplayRunButton } from '@/features/flow-runs/components/replay-run-button';
+import { ReplayAssociationIndicator, SourceRunReplaysBanner } from '@/features/flow-runs/components/replay-run-banner';
 import { flagsHooks } from '@/hooks/flags-hooks';
 import { formatUtils } from '@/lib/format-utils';
 import { cn } from '@/lib/utils';
@@ -100,16 +102,19 @@ const RunInfoWidget = () => {
     ignoreInternalError: false,
   });
   return (
-    <LargeWidgetWrapper
-      containerClassName={cn(
-        flowRunUtils.getStatusContainerClassName(variant),
-        'bg-background border border-border dark:bg-background dark:border-border',
-      )}
-      key={run.id + run.status}
-    >
+    <>
+      <SourceRunReplaysBanner run={run} />
+      <LargeWidgetWrapper
+        containerClassName={cn(
+          flowRunUtils.getStatusContainerClassName(variant),
+          'bg-background border border-border dark:bg-background dark:border-border',
+        )}
+        key={run.id + run.status}
+      >
       <div className="flex items-center justify-between w-full flex-wrap">
         <div className="flex items-center text-sm shrink-0">
           <Icon className="size-5 mr-2" />
+          <ReplayAssociationIndicator run={run} />
           <span className="text-foreground dark:text-foreground font-medium">
             {getStatusText({
               status: run.status,
@@ -162,14 +167,19 @@ const RunInfoWidget = () => {
           {run.failedStep && (
             <JumpToFailedStepButton failedStepName={run.failedStep.name} />
           )}
+          {isRunTerminal && (
+            <ReplayRunButton run={run} variant="button" />
+          )}
           <EditFlowOrViewDraftButton
             onCanvas={false}
           ></EditFlowOrViewDraftButton>
         </div>
       </div>
     </LargeWidgetWrapper>
+    </>
   );
 };
+
 RunInfoWidget.displayName = 'RunInfoWidget';
 export { RunInfoWidget };
 

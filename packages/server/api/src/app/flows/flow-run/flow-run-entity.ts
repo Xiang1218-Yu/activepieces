@@ -88,6 +88,10 @@ export const FlowRunEntity = new EntitySchema<FlowRunSchema>({
             nullable: false,
             default: 0,
         },
+        replayOfRunId: {
+            type: String,
+            nullable: true,
+        },
         // @deprecated — kept for backwards compatibility, use waitpoint table instead
         pauseMetadata: {
             type: 'jsonb',
@@ -134,6 +138,10 @@ export const FlowRunEntity = new EntitySchema<FlowRunSchema>({
         {
             name: 'idx_run_triggered_by',
             columns: ['triggeredBy'],
+        },
+        {
+            name: 'idx_run_replay_of_run_id',
+            columns: ['replayOfRunId'],
         },
     ],
     relations: {

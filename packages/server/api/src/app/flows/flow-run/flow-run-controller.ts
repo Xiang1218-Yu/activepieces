@@ -1,5 +1,5 @@
 import { ActivepiecesError, ApId, ErrorCode, isNil, omit, Permission, SeekPage } from '@activepieces/core-utils'
-import { ApEdition, BulkActionOnRunsRequestBody, BulkArchiveActionOnRunsRequestBody, BulkCancelFlowRequestBody, CountFlowRunsByStatusRequest, CountFlowRunsByStatusResponse, FlowRun, ListFlowRunsRequestQuery, PlatformRole, PrincipalType, RetryFlowRequestBody, RunEnvironment, RunInternalErrorSource, SERVICE_KEY_SECURITY_OPENAPI } from '@activepieces/shared'
+import { ApEdition, BulkActionOnRunsRequestBody, BulkArchiveActionOnRunsRequestBody, BulkCancelFlowRequestBody, CountFlowRunsByStatusRequest, CountFlowRunsByStatusResponse, CreateReplayRequestBody, FlowRun, ListFlowRunsRequestQuery, PlatformRole, PrepareReplayResponse, PrincipalType, RetryFlowRequestBody, RunEnvironment, RunInternalErrorSource, SERVICE_KEY_SECURITY_OPENAPI } from '@activepieces/shared'
 import { FastifyRequest } from 'fastify'
 import { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { StatusCodes } from 'http-status-codes'
@@ -9,6 +9,7 @@ import { securityAccess } from '../../core/security/authorization/fastify-securi
 import { system } from '../../helper/system/system'
 import { userService } from '../../user/user-service'
 import { FlowRunEntity } from './flow-run-entity'
+import { flowRunReplayService } from './flow-run-replay-service'
 import { flowRunService } from './flow-run-service'
 
 const DEFAULT_PAGING_LIMIT = 10
@@ -73,6 +74,32 @@ export const flowRunController: FastifyPluginAsyncZod = async (app) => {
             })
         }
         return flowRun
+    })
+
+    app.post('/:id/replay/prepare', PrepareReplayRequest, async (req) => {
+        const sourceRun = await flowRunService(req.log).getOnePopulatedOrThrow({
+            id: req.params.id,
+            projectId: req.projectId,
+        })
+        return flowRunReplayService(req.log).prepare({
+            sourceRun,
+            projectId: req.projectId,
+        })
+    })
+
+    app.post('/:id/replay', CreateReplayRequest, async (req) => {
+        return flowRunService(req.log).replay({
+            flowRunId: req.params.id,
+            projectId: req.body.projectId,
+            triggeredBy: req.principal.type === PrincipalType.USER ? req.principal.id : undefined,
+        })
+    })
+
+    app.get('/:id/replays', ListReplaysRequest, async (req) => {
+        return flowRunService(req.log).listReplays({
+            flowRunId: req.params.id,
+            projectId: req.projectId,
+        })
     })
 
     app.post('/cancel', BulkCancelFlowRequest, async (req) => {
@@ -245,6 +272,74 @@ const BulkRetryFlowRequest = {
     },
     schema: {
         body: BulkActionOnRunsRequestBody,
+    },
+}
+
+const PrepareReplayRequest = {
+    config: {
+        security: securityAccess.project(
+            [PrincipalType.USER, PrincipalType.SERVICE],
+            Permission.READ_RUN, {
+                type: ProjectResourceType.TABLE,
+                tableName: FlowRunEntity,
+            }),
+    },
+    schema: {
+        tags: ['flow-runs'],
+        description: 'Prepare a test-run replay: resolve the historical flow version, trigger input and blockers',
+        security: [SERVICE_KEY_SECURITY_OPENAPI],
+        params: z.object({
+            id: ApId,
+        }),
+        body: z.object({}).optional(),
+        response: {
+            [StatusCodes.OK]: PrepareReplayResponse,
+        },
+    },
+}
+
+const CreateReplayRequest = {
+    config: {
+        security: securityAccess.project(
+            [PrincipalType.USER, PrincipalType.SERVICE],
+            Permission.WRITE_RUN, {
+                type: ProjectResourceType.TABLE,
+                tableName: FlowRunEntity,
+            }),
+    },
+    schema: {
+        tags: ['flow-runs'],
+        description: 'Create an independent TESTING run that replays the historical run on its original flow version',
+        security: [SERVICE_KEY_SECURITY_OPENAPI],
+        params: z.object({
+            id: ApId,
+        }),
+        body: CreateReplayRequestBody,
+        response: {
+            [StatusCodes.OK]: FlowRun.omit({ steps: true }),
+        },
+    },
+}
+
+const ListReplaysRequest = {
+    config: {
+        security: securityAccess.project(
+            [PrincipalType.USER, PrincipalType.SERVICE],
+            Permission.READ_RUN, {
+                type: ProjectResourceType.TABLE,
+                tableName: FlowRunEntity,
+            }),
+    },
+    schema: {
+        tags: ['flow-runs'],
+        description: 'List replay test runs created from a flow run',
+        security: [SERVICE_KEY_SECURITY_OPENAPI],
+        params: z.object({
+            id: ApId,
+        }),
+        response: {
+            [StatusCodes.OK]: z.array(FlowRun.omit({ steps: true })),
+        },
     },
 }
 

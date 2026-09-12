@@ -354,6 +354,7 @@ function convertToIcon(event: ApplicationEvent) {
     case ApplicationEventName.FLOW_RUN_STARTED:
     case ApplicationEventName.FLOW_RUN_RESUMED:
     case ApplicationEventName.FLOW_RUN_RETRIED:
+    case ApplicationEventName.FLOW_RUN_REPLAYED:
       return {
         icon: <Logs className="size-4" />,
         tooltip: t('Flow Run'),
@@ -434,6 +435,10 @@ function convertToDetails(event: ApplicationEvent): string {
       return `Flow run retried from failed step in ${formatUtils.convertEnumToHumanReadable(
         event.data.flowRun.environment,
       )} environment`;
+    case ApplicationEventName.FLOW_RUN_REPLAYED:
+      return `Flow run replayed as a test run in ${formatUtils.convertEnumToHumanReadable(
+        event.data.flowRun.environment,
+      )} environment`;
     case ApplicationEventName.FLOW_CREATED:
       return t('A new flow was created');
     case ApplicationEventName.FLOW_DELETED:
@@ -448,7 +453,8 @@ function extractEventDetails(event: ApplicationEvent): EventDetailRow[] {
     case ApplicationEventName.FLOW_RUN_STARTED:
     case ApplicationEventName.FLOW_RUN_FINISHED:
     case ApplicationEventName.FLOW_RUN_RESUMED:
-    case ApplicationEventName.FLOW_RUN_RETRIED: {
+    case ApplicationEventName.FLOW_RUN_RETRIED:
+    case ApplicationEventName.FLOW_RUN_REPLAYED: {
       const { flowRun } = event.data;
       const rows: EventDetailRow[] = [
         {

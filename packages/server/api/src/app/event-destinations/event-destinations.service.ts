@@ -29,6 +29,7 @@ const FLOW_RUN_EVENT_ACTIONS: ReadonlySet<ApplicationEventName> = new Set([
     ApplicationEventName.FLOW_RUN_FINISHED,
     ApplicationEventName.FLOW_RUN_RESUMED,
     ApplicationEventName.FLOW_RUN_RETRIED,
+    ApplicationEventName.FLOW_RUN_REPLAYED,
 ])
 
 const WEBHOOK_PATH_MARKER = '/v1/webhooks/'

@@ -205,6 +205,35 @@ describe('executeFlowJob', () => {
             expect(ctx.runtime.execute).not.toHaveBeenCalled()
         })
     })
+    describe('resolution side effects', () => {
+        it('allows the production disable side effect for PRODUCTION runs', async () => {
+            const ctx = makeMockContext()
+            const data = makeResumeJobData({
+                executionType: ExecutionType.BEGIN,
+                environment: RunEnvironment.PRODUCTION,
+            })
+
+            await executeFlowJob.execute(ctx, data)
+
+            expect(ctx.resolver.resolve).toHaveBeenCalledWith(expect.objectContaining({
+                allowFlowDisable: true,
+            }))
+        })
+
+        it('never lets a TESTING replay disable the production flow', async () => {
+            const ctx = makeMockContext()
+            const data = makeResumeJobData({
+                executionType: ExecutionType.BEGIN,
+                environment: RunEnvironment.TESTING,
+            })
+
+            await executeFlowJob.execute(ctx, data)
+
+            expect(ctx.resolver.resolve).toHaveBeenCalledWith(expect.objectContaining({
+                allowFlowDisable: false,
+            }))
+        })
+    })
     describe('correlation ids on a terminal status report', () => {
         const syncJobData = (overrides?: Partial<ExecuteFlowJobData>) => makeResumeJobData({
             executionType: ExecutionType.BEGIN,

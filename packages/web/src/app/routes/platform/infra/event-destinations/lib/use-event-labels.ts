@@ -23,6 +23,7 @@ export const useEventLabels = (): EventLabelsMap => {
     },
     [ApplicationEventName.FLOW_RUN_RESUMED]: { label: t('Flow run resumed') },
     [ApplicationEventName.FLOW_RUN_RETRIED]: { label: t('Flow run retried') },
+    [ApplicationEventName.FLOW_RUN_REPLAYED]: { label: t('Flow run replayed') },
     [ApplicationEventName.FLOW_CREATED]: { label: t('Flow created') },
     [ApplicationEventName.FLOW_UPDATED]: { label: t('Flow updated') },
     [ApplicationEventName.FLOW_DELETED]: { label: t('Flow deleted') },

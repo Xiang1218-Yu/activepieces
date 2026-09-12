@@ -31,6 +31,7 @@ export enum ApplicationEventName {
     FLOW_RUN_STARTED = 'flow.run.started',
     FLOW_RUN_FINISHED = 'flow.run.finished',
     FLOW_RUN_RETRIED = 'flow.run.retried',
+    FLOW_RUN_REPLAYED = 'flow.run.replayed',
     FOLDER_CREATED = 'folder.created',
     FOLDER_UPDATED = 'folder.updated',
     FOLDER_DELETED = 'folder.deleted',
@@ -242,6 +243,7 @@ export const FlowRunEvent = z.object({
         z.literal(ApplicationEventName.FLOW_RUN_FINISHED),
         z.literal(ApplicationEventName.FLOW_RUN_RESUMED),
         z.literal(ApplicationEventName.FLOW_RUN_RETRIED),
+        z.literal(ApplicationEventName.FLOW_RUN_REPLAYED),
     ]),
     data: FlowRunEventData,
 })
@@ -267,6 +269,13 @@ export const FlowRunRetriedEvent = z.object({
     data: FlowRunEventData,
 })
 export type FlowRunRetriedEvent = z.infer<typeof FlowRunRetriedEvent>
+
+export const FlowRunReplayedEvent = z.object({
+    ...BaseAuditEventProps,
+    action: z.literal(ApplicationEventName.FLOW_RUN_REPLAYED),
+    data: FlowRunEventData,
+})
+export type FlowRunReplayedEvent = z.infer<typeof FlowRunReplayedEvent>
 
 export const FlowCreatedEvent = z.object({
     ...BaseAuditEventProps,
@@ -603,6 +612,9 @@ export function summarizeApplicationEvent(event: ApplicationEvent) {
         }
         case ApplicationEventName.FLOW_RUN_RETRIED: {
             return `Flow run ${event.data.flowRun.id} is retried from a failed step`
+        }
+        case ApplicationEventName.FLOW_RUN_REPLAYED: {
+            return `Flow run ${event.data.flowRun.id} is replayed`
         }
         case ApplicationEventName.FLOW_CREATED:
             return `Flow ${event.data.flow.id} is created`

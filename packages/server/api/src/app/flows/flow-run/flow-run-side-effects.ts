@@ -47,6 +47,16 @@ export const flowRunSideEffects = (log: FastifyBaseLogger) => ({
             },
         })
     },
+    async onReplay({ flowRun, platformId }: FlowRunSideEffectParams): Promise<void> {
+        applicationEvents(log).sendWorkerEvent({
+            projectId: flowRun.projectId,
+            platformId,
+            action: ApplicationEventName.FLOW_RUN_REPLAYED,
+            data: {
+                flowRun,
+            },
+        })
+    },
     async onStart({ flowRun, platformId }: FlowRunSideEffectParams): Promise<void> {
         applicationEvents(log).sendWorkerEvent({
             projectId: flowRun.projectId,

@@ -56,7 +56,8 @@ export const buildMockEvent = ({ event, platformId, projectId }: BuildMockEventP
         case ApplicationEventName.FLOW_RUN_STARTED:
         case ApplicationEventName.FLOW_RUN_FINISHED:
         case ApplicationEventName.FLOW_RUN_RESUMED:
-        case ApplicationEventName.FLOW_RUN_RETRIED: {
+        case ApplicationEventName.FLOW_RUN_RETRIED:
+        case ApplicationEventName.FLOW_RUN_REPLAYED: {
             const mock: FlowRunEvent = {
                 ...baseEnvelope,
                 action: event,
