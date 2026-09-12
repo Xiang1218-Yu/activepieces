@@ -1,6 +1,6 @@
 import { ActivepiecesError, apId, assertNotNullOrUndefined, Cursor, ErrorCode, FlowId, FlowVersionId, isNil, Metadata, PlatformId, ProjectId, SeekPage, tryCatch, UserId } from '@activepieces/core-utils'
 import { apDayjs, apDayjsDuration } from '@activepieces/server-utils'
-import { CreateFlowRequest, Flow, FlowCreator, FlowOperationRequest, FlowOperationStatus, FlowOperationType, flowPieceUtil, FlowStatus, FlowTriggerType, FlowVersion, FlowVersionState, PopulatedFlow, SharedTemplate, TelemetryEventName, TemplateStatus, TemplateType, TriggerSource, UncategorizedFolderId, UserWithMetaInformation } from '@activepieces/shared'
+import { CreateFlowRequest, Flow, FlowCreator, FlowOperationRequest, FlowOperationStatus, FlowOperationType, flowPieceUtil, FlowStatus, FlowVersion, FlowVersionState, PopulatedFlow, SharedTemplate, TelemetryEventName, TemplateStatus, TemplateType, TriggerSource, UncategorizedFolderId, UserWithMetaInformation } from '@activepieces/shared'
 import dayjs from 'dayjs'
 import { FastifyBaseLogger } from 'fastify'
 import { EntityManager, In, IsNull, Not } from 'typeorm'
@@ -19,6 +19,7 @@ import { projectService } from '../../project/project-service'
 import { triggerSourceService } from '../../trigger/trigger-source/trigger-source-service'
 import { flowVersionMigrationService } from '../flow-version/flow-version-migration.service'
 import { flowVersionRepo, flowVersionService } from '../flow-version/flow-version.service'
+import { buildImportVersionOperations } from '../flow-version/operations/import-version-operations'
 import { flowFolderService } from '../folder/folder.service'
 import { flowExecutionCache } from './flow-execution-cache'
 import { flowPublishHooks, publishHooksFactory } from './flow-publish-hooks'
@@ -1011,22 +1012,7 @@ async function createNewDraftIfVersionIsPublished({
     const createdNewDraft = lastVersion.state === FlowVersionState.LOCKED
     if (lastVersion.state === FlowVersionState.LOCKED) {
         const lockedVersion = lastVersion
-        const operations: FlowOperationRequest[] = [{
-            type: FlowOperationType.IMPORT_FLOW,
-            request: lockedVersion,
-        }]
-        if (
-            lockedVersion.trigger.type === FlowTriggerType.PIECE &&
-            !isNil(lockedVersion.trigger.settings.sampleData)
-        ) {
-            operations.push({
-                type: FlowOperationType.UPDATE_SAMPLE_DATA_INFO,
-                request: {
-                    stepName: lockedVersion.trigger.name,
-                    sampleDataSettings: lockedVersion.trigger.settings.sampleData,
-                },
-            })
-        }
+        const operations = buildImportVersionOperations(lockedVersion)
         lastVersion = await transaction(async (entityManager) => {
             let draftVersion = await flowVersionService(log).createEmptyVersion({
                 flowId,

@@ -1,20 +1,20 @@
-import { ActivepiecesError, apId, Cursor, ErrorCode, FlowId, FlowVersionId, isNil, PlatformId, ProjectId, sanitizeObjectForPostgresql, SeekPage, UserId } from '@activepieces/core-utils'
-import { FlowOperationRequest, flowOperations, FlowOperationType, flowStructureUtil, FlowTriggerType, FlowVersion, FlowVersionState, LATEST_FLOW_SCHEMA_VERSION, Note } from '@activepieces/shared'
+import { ActivepiecesError, apId, Cursor, ErrorCode, FlowId, FlowVersionId, isNil, PlatformId, ProjectId, SeekPage, UserId } from '@activepieces/core-utils'
+import { FlowOperationRequest, flowStructureUtil, FlowTriggerType, FlowVersion, FlowVersionState, LATEST_FLOW_SCHEMA_VERSION, Note } from '@activepieces/shared'
 import dayjs from 'dayjs'
 import { FastifyBaseLogger } from 'fastify'
 import { EntityManager, FindOneOptions, SelectQueryBuilder } from 'typeorm'
-import { repoFactory } from '../../core/db/repo-factory'
 import { buildPaginator } from '../../helper/pagination/build-paginator'
 import { paginationHelper } from '../../helper/pagination/pagination-utils'
 import { projectService } from '../../project/project-service'
 import { userService } from '../../user/user-service'
-import { sampleDataService } from '../step-run/sample-data.service'
 import { FlowVersionEntity } from './flow-version-entity'
 import { flowVersionMigrationService } from './flow-version-migration.service'
-import { flowVersionSideEffects } from './flow-version-side-effects'
-import { flowVersionValidationUtil } from './flow-version-validator-util'
+import { flowVersionRepo } from './flow-version.repo'
+import { applySingleOperation } from './operations/flow-operation-applier'
+import { finalizeAndSaveVersion } from './operations/flow-version-finalizer'
+import { expandOperation } from './operations/operation-expanders'
 
-export const flowVersionRepo = repoFactory(FlowVersionEntity)
+export { flowVersionRepo } from './flow-version.repo'
 
 export const publishedFlowVersionsUsingAgent = ({ projectId, agentExternalId, alias = 'flow_version' }: { projectId: ProjectId, agentExternalId: string, alias?: string }): SelectQueryBuilder<FlowVersion> => flowVersionRepo()
     .createQueryBuilder(alias)
@@ -37,6 +37,21 @@ export const publishedFlowsUsingAgent = async ({ projectId, agentExternalId, nam
 }
 
 export const flowVersionService = (log: FastifyBaseLogger) => ({
+    /**
+     * Applies a user operation to a flow version.
+     *
+     * Responsibilities are split into:
+     * - expandOperation: composite operations (USE_AS_DRAFT, SAVE_SAMPLE_DATA,
+     *   future ones) are expanded into an ordered list of primitive operations
+     *   by a registry (see operations/operation-expanders.ts);
+     * - applySingleOperation: per-operation side effects, validation and pure
+     *   structure application (operations/flow-operation-applier.ts);
+     * - finalizeAndSaveVersion: timestamps/connection+agent reference
+     *   extraction and the single persist (operations/flow-version-finalizer.ts).
+     *
+     * The version row is written only once after the whole batch succeeds, so
+     * an exception on operation N leaves the stored version as it was before.
+     */
     async applyOperation({
         flowVersion,
         projectId,
@@ -45,61 +60,18 @@ export const flowVersionService = (log: FastifyBaseLogger) => ({
         entityManager,
         platformId,
     }: ApplyOperationParams): Promise<FlowVersion> {
-        let operations: FlowOperationRequest[] = []
-        let mutatedFlowVersion: FlowVersion = flowVersion
+        const operations = await expandOperation(userOperation, {
+            log,
+            projectId,
+            flowVersion,
+            loadVersionOrThrow: (versionId) => this.getFlowVersionOrThrow({
+                flowId: flowVersion.flowId,
+                versionId,
+                removeConnectionsName: false,
+            }),
+        })
 
-        switch (userOperation.type) {
-            case FlowOperationType.USE_AS_DRAFT: {
-                const previousVersion = await flowVersionService(log).getFlowVersionOrThrow({
-                    flowId: flowVersion.flowId,
-                    versionId: userOperation.request.versionId,
-                    removeConnectionsName: false,
-                })
-                operations = [{
-                    type: FlowOperationType.IMPORT_FLOW,
-                    request: {
-                        trigger: previousVersion.trigger,
-                        displayName: previousVersion.displayName,
-                        schemaVersion: previousVersion.schemaVersion,
-                        notes: previousVersion.notes,
-                    },
-                }]
-                if (
-                    previousVersion.trigger.type === FlowTriggerType.PIECE &&
-                    !isNil(previousVersion.trigger.settings.sampleData)
-                ) {
-                    operations.push({
-                        type: FlowOperationType.UPDATE_SAMPLE_DATA_INFO,
-                        request: {
-                            stepName: previousVersion.trigger.name,
-                            sampleDataSettings: previousVersion.trigger.settings.sampleData,
-                        },
-                    })
-                }
-                break
-            }
-            case FlowOperationType.SAVE_SAMPLE_DATA: {
-                const sampleDataSettings = await sampleDataService(log).saveSampleDataFileIdsInStep({
-                    projectId,
-                    flowVersionId: mutatedFlowVersion.id,
-                    stepName: userOperation.request.stepName,
-                    payload: userOperation.request.payload,
-                    type: userOperation.request.type,
-                })
-                operations = [{
-                    type: FlowOperationType.UPDATE_SAMPLE_DATA_INFO,
-                    request: {
-                        stepName: userOperation.request.stepName,
-                        sampleDataSettings,
-                    },
-                }]
-                break
-            }
-            default: {
-                operations = [userOperation]
-                break
-            }
-        }
+        let mutatedFlowVersion = flowVersion
         for (const operation of operations) {
             mutatedFlowVersion = await applySingleOperation({
                 projectId,
@@ -110,21 +82,13 @@ export const flowVersionService = (log: FastifyBaseLogger) => ({
                 userId,
                 entityManager,
             })
-            if (operation.type === FlowOperationType.ADD_NOTE) {
-                const noteIndex = mutatedFlowVersion.notes.findIndex((note) => note.id === operation.request.id)
-                if (noteIndex !== -1) {
-                    mutatedFlowVersion.notes[noteIndex] = { ...mutatedFlowVersion.notes[noteIndex], ownerId: userId }
-                }
-            }
         }
 
-        mutatedFlowVersion.updated = dayjs().toISOString()
-        if (userId) {
-            mutatedFlowVersion.updatedBy = userId
-        }
-        mutatedFlowVersion.connectionIds = flowStructureUtil.extractConnectionIds(mutatedFlowVersion)
-        mutatedFlowVersion.agentIds = flowStructureUtil.extractAgentIds(mutatedFlowVersion)
-        return flowVersionRepo(entityManager).save(sanitizeObjectForPostgresql(mutatedFlowVersion))
+        return finalizeAndSaveVersion({
+            userId,
+            entityManager,
+            flowVersion: mutatedFlowVersion,
+        })
     },
 
     async getOne(id: FlowVersionId): Promise<FlowVersion | null> {
@@ -339,27 +303,6 @@ async function findOne(log: FastifyBaseLogger, options: FindOneOptions, entityMa
     return flowVersionMigrationService(log).migrate(flowVersion, projectId, platformId)
 }
 
-
-async function applySingleOperation({
-    projectId,
-    flowVersion,
-    operation,
-    platformId,
-    log,
-    userId,
-    entityManager,
-}: ApplySingleOperationParams): Promise<FlowVersion> {
-    await flowVersionSideEffects(log).preApplyOperation({
-        projectId,
-        flowVersion,
-        operation,
-        entityManager,
-    })
-    const preparedOperation = await flowVersionValidationUtil(log).prepareRequest({ platformId, request: operation, userId })
-    const updatedFlowVersion = flowOperations.apply(flowVersion, preparedOperation)
-    return updatedFlowVersion
-}
-
 function removeConnectionsFromInput(
     obj: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -403,16 +346,6 @@ type CreateEmptyVersionParams = {
     displayName: string
     notes: Note[]
     schemaVersion: string | undefined | null
-    entityManager?: EntityManager
-}
-
-type ApplySingleOperationParams = {
-    projectId: ProjectId
-    flowVersion: FlowVersion
-    operation: FlowOperationRequest
-    platformId: PlatformId
-    log: FastifyBaseLogger
-    userId: UserId | null
     entityManager?: EntityManager
 }
 
