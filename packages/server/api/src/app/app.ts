@@ -108,6 +108,7 @@ import { piecesReportModule } from './platform/pieces-report/pieces-report.modul
 import { platformConfigurationModule } from './platform/platform-configuration.module'
 import { platformModule } from './platform/platform.module'
 import { projectHooks } from './project/project-hooks'
+import { runRetentionModule } from './run-retention/run-retention.module'
 import { storeEntryModule } from './store-entry/store-entry.module'
 import { tablesModule } from './tables/tables.module'
 import { templateModule } from './template/template.module'
@@ -248,6 +249,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
     await app.register(platformModule)
     await app.register(piecesReportModule)
     await app.register(platformConfigurationModule)
+    await app.register(runRetentionModule)
     await app.register(humanInputModule)
     await app.register(mcpServerModule)
     await app.register(mcpOAuthApproveController)

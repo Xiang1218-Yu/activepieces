@@ -1,5 +1,6 @@
-import { FlowOperationType, FlowStatus } from '@activepieces/core-execution'
+import { FlowOperationType, FlowRunStatus, FlowStatus } from '@activepieces/core-execution'
 import { apId, PlatformId, ProjectId } from '@activepieces/core-utils'
+import { RunRetentionPolicyScope } from '../../management/run-retention'
 import {
     AgentAuditEvent,
     ApplicationEvent,
@@ -20,6 +21,7 @@ import {
     ProjectReleaseEvent,
     ProjectReplacedEvent,
     ProjectRoleEvent,
+    RunRetentionPolicyEvent,
     SigningKeyEvent,
     SignUpEvent,
     VariableEvent,
@@ -346,6 +348,23 @@ export const buildMockEvent = ({ event, platformId, projectId }: BuildMockEventP
                     flowVersionId: flowVersion.id,
                     flowDisplayName: flowVersion.displayName,
                     rejectionReason: event === ApplicationEventName.FLOW_APPROVAL_REJECTED ? 'Needs stricter validation' : null,
+                },
+            }
+            return mock
+        }
+        case ApplicationEventName.RUN_RETENTION_POLICY_UPDATED:
+        case ApplicationEventName.RUN_RETENTION_POLICY_DELETED: {
+            const mock: RunRetentionPolicyEvent = {
+                ...baseEnvelope,
+                action: event,
+                data: {
+                    policy: {
+                        scope: RunRetentionPolicyScope.PROJECT,
+                        retentionDays: 14,
+                        statuses: [FlowRunStatus.SUCCEEDED, FlowRunStatus.FAILED],
+                        includeArchived: true,
+                    },
+                    project,
                 },
             }
             return mock

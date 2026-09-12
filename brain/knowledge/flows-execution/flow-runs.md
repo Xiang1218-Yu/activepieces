@@ -39,7 +39,7 @@ A Flow Run records one execution of a specific flow version, from trigger to ter
 - **Post-run metering window**: AI usage is metered only at `onFinish`, so a long run can spend past the credit limit before anything lands; interim by design — see decision 000016.
 
 ### Editions
-CE has full run tracking. Cloud may enforce retention windows; bulk-retry admin endpoint is Cloud-only.
+CE has full run tracking. Cloud may enforce retention windows; bulk-retry admin endpoint is Cloud-only. Run-row deletion on any edition is opt-in via run retention policies — see [run-retention](run-retention.md).
 
 ### Key files
 Entry point: `flowRunService`, defined in `flow-run-service.ts` and wired through `flow-run-module.ts`.

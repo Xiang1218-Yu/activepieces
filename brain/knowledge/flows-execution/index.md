@@ -67,6 +67,7 @@ Reusable flow/table blueprints. Types: OFFICIAL (Activepieces-curated, platformI
 
 - **Flows** — the versioned trigger + action graph, DRAFT/LOCKED, publishing
 - **Flow Runs** — the status state machine and RunTimeline phases
+- **Run Retention** — per-project policies that hard-delete old run rows
 - **Action Runs** — a single step executed outside any flow, synchronously
 - **Triggers** — POLLING / WEBHOOK / APP_WEBHOOK / MANUAL
 - **Human Input** — forms, approvals, the resume confirmation page

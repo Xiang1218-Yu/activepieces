@@ -31,6 +31,7 @@ export * from './lib/management/analytics'
 export * from './lib/management/ai-providers'
 export * from './lib/management/ai-tools'
 export * from './lib/management/template'
+export * from './lib/management/run-retention'
 
 // automation — flows / flow-run / engine / agents / workers were extracted to
 // @activepieces/core-execution (SRE-163); shared re-exports them for backward compat.

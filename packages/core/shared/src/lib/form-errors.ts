@@ -8,4 +8,5 @@ export const formErrors = {
     messageRequiresContentOrFiles: 'messageRequiresContentOrFiles',
     agentConfigTooLarge: 'agentConfigTooLarge',
     invalidGcpResourceId: 'invalidGcpResourceId',
+    runRetentionStatusesMustBeTerminal: 'runRetentionStatusesMustBeTerminal',
 } as const

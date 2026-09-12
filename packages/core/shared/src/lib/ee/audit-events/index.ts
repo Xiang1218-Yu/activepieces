@@ -1,8 +1,9 @@
-import { Flow, FlowOperationRequest, FlowOperationType, FlowVersion, Folder } from '@activepieces/core-execution'
+import { Flow, FlowOperationRequest, FlowOperationType, FlowRunStatus, FlowVersion, Folder } from '@activepieces/core-execution'
 import { BaseModelSchema, DateOrString, Nullable, OptionalArrayFromQuery, ProjectRole } from '@activepieces/core-utils'
 import { z } from 'zod'
 import * as zMini from 'zod/mini'
 import { UserWithMetaInformation } from '../../core/user/user'
+import { RunRetentionPolicyScope } from '../../management/run-retention'
 import { SigningKey } from '../signing-key'
 export const ListAuditEventsRequest = z.object({
     limit: z.coerce.number().optional(),
@@ -58,6 +59,8 @@ export enum ApplicationEventName {
     FLOW_APPROVAL_GRANTED = 'flow.approval.granted',
     FLOW_APPROVAL_REJECTED = 'flow.approval.rejected',
     FLOW_APPROVAL_WITHDRAWN = 'flow.approval.withdrawn',
+    RUN_RETENTION_POLICY_UPDATED = 'run.retention.policy.updated',
+    RUN_RETENTION_POLICY_DELETED = 'run.retention.policy.deleted',
 }
 
 const BaseAuditEventProps = {
@@ -563,6 +566,26 @@ export const FlowApprovalEvent = z.object({
 })
 export type FlowApprovalEvent = z.infer<typeof FlowApprovalEvent>
 
+export const RunRetentionPolicyEvent = z.object({
+    ...BaseAuditEventProps,
+    action: z.union([
+        z.literal(ApplicationEventName.RUN_RETENTION_POLICY_UPDATED),
+        z.literal(ApplicationEventName.RUN_RETENTION_POLICY_DELETED),
+    ]),
+    data: z.object({
+        policy: z.object({
+            scope: z.enum(RunRetentionPolicyScope),
+            retentionDays: z.number(),
+            statuses: z.array(z.enum(FlowRunStatus)),
+            includeArchived: z.boolean(),
+        }),
+        project: z.object({
+            displayName: z.string(),
+        }).optional(),
+    }),
+})
+export type RunRetentionPolicyEvent = z.infer<typeof RunRetentionPolicyEvent>
+
 export const ApplicationEvent = z.union([
     AgentAuditEvent,
     ConnectionEvent,
@@ -584,6 +607,7 @@ export const ApplicationEvent = z.union([
     ProjectReleaseEvent,
     ProjectReplacedEvent,
     FlowApprovalEvent,
+    RunRetentionPolicyEvent,
 ])
 
 export type ApplicationEvent = z.infer<typeof ApplicationEvent>
@@ -680,6 +704,17 @@ export function summarizeApplicationEvent(event: ApplicationEvent) {
             return `Approval rejected for flow ${event.data.flowDisplayName ?? event.data.flowId}${event.data['rejectionReason'] ? ` (${event.data['rejectionReason']})` : ''}`
         case ApplicationEventName.FLOW_APPROVAL_WITHDRAWN:
             return `Approval request withdrawn for flow ${event.data.flowDisplayName ?? event.data.flowId}`
+        case ApplicationEventName.RUN_RETENTION_POLICY_UPDATED: {
+            const { scope, retentionDays } = event.data.policy
+            return scope === RunRetentionPolicyScope.PLATFORM
+                ? `Platform default run retention policy updated to ${retentionDays} days`
+                : `Project run retention policy updated to ${retentionDays} days`
+        }
+        case ApplicationEventName.RUN_RETENTION_POLICY_DELETED: {
+            return event.data.policy.scope === RunRetentionPolicyScope.PLATFORM
+                ? 'Platform default run retention policy is deleted'
+                : 'Project run retention policy override is deleted'
+        }
     }
 }
 

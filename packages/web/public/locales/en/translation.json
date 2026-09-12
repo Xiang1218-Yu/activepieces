@@ -2406,6 +2406,7 @@
   "External ID can only contain letters, numbers and underscores": "External ID can only contain letters, numbers and underscores",
   "required": "Required",
   "invalidExternalId": "External ID may only contain letters, numbers, dot, dash and underscore (up to 128 characters)",
+  "runRetentionStatusesMustBeTerminal": "Only finished run statuses can be selected for cleanup",
   "Please connect your account first": "Please connect your account first",
   "Recommended": "Recommended",
   "Others": "Others",

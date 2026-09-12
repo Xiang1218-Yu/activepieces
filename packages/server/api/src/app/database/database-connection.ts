@@ -52,6 +52,7 @@ import { PieceMetadataEntity } from '../pieces/metadata/piece-metadata-entity'
 import { PlatformConfigurationEntity } from '../platform/platform-configuration.entity'
 import { PlatformEntity } from '../platform/platform.entity'
 import { ProjectEntity } from '../project/project-entity'
+import { RunRetentionPolicyEntity } from '../run-retention/run-retention-policy-entity'
 import { StoreEntryEntity } from '../store-entry/store-entry-entity'
 import { FieldEntity } from '../tables/field/field.entity'
 import { CellEntity } from '../tables/record/cell.entity'
@@ -119,6 +120,7 @@ function getEntities(): EntitySchema<unknown>[] {
         TriggerSourceEntity,
         WaitpointEntity,
         WaitpointSignalEntity,
+        RunRetentionPolicyEntity,
         // Enterprise
         PieceSetEntity,
         ConcurrencyPoolEntity,
