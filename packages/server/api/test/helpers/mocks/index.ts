@@ -346,6 +346,8 @@ export const createAuditEvent = (auditEvent: Partial<ApplicationEvent>) => {
         updated: auditEvent.updated ?? faker.date.recent().toISOString(),
         ip: auditEvent.ip ?? faker.internet.ip(),
         platformId: auditEvent.platformId,
+        projectId: auditEvent.projectId,
+        projectDisplayName: auditEvent.projectDisplayName,
         userId: auditEvent.userId,
         userEmail: auditEvent.userEmail ?? faker.internet.email(),
         action: auditEvent.action ?? faker.helpers.enumValue(ApplicationEventName),

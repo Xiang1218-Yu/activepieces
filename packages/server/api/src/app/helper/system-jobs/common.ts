@@ -15,6 +15,8 @@ export enum SystemJobName {
     RESUME_DELAY_WAITPOINT = 'resume-delay-waitpoint',
     TOOL_SEARCH_REINDEX = 'tool-search-reindex',
     CHAT_STALE_SWEEP = 'chat-stale-sweep',
+    AUDIT_LOG_EXPORT = 'audit-log-export',
+    AUDIT_LOG_EXPORT_CLEANUP = 'audit-log-export-cleanup',
 }
 
 type DeleteFlowDurableSystemJobData =  {
@@ -38,10 +40,12 @@ type ResumeDelayWaitpointSystemJobData = {
     waitpointId: string
 }
 
-// Scope shape kept inline (structurally equal to tool-search's ReindexScope) so this generic
-// job framework does not depend on the tool-search feature module.
 type ToolSearchReindexSystemJobData = {
     scope: { type: 'all' } | { type: 'platform', platformId: PlatformId }
+}
+
+type AuditLogExportSystemJobData = {
+    exportId: string
 }
 
 type SystemJobDataMap = {
@@ -56,6 +60,8 @@ type SystemJobDataMap = {
     [SystemJobName.RESUME_DELAY_WAITPOINT]: ResumeDelayWaitpointSystemJobData
     [SystemJobName.TOOL_SEARCH_REINDEX]: ToolSearchReindexSystemJobData
     [SystemJobName.CHAT_STALE_SWEEP]: Record<string, never>
+    [SystemJobName.AUDIT_LOG_EXPORT]: AuditLogExportSystemJobData
+    [SystemJobName.AUDIT_LOG_EXPORT_CLEANUP]: Record<string, never>
 }
 
 export type SystemJobData<T extends SystemJobName = SystemJobName> = T extends SystemJobName ? SystemJobDataMap[T] : never

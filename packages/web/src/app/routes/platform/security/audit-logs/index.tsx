@@ -21,6 +21,7 @@ import {
   FileText,
   User,
   Clock,
+  Download,
 } from 'lucide-react';
 import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -40,6 +41,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { auditLogQueries } from '@/features/platform-admin';
+import { AuditLogExportDialog } from '@/features/platform-admin/components/audit-log-export-dialog';
 import { platformUserHooks } from '@/features/platform-admin/hooks/platform-user-hooks';
 import { projectCollectionUtils } from '@/features/projects';
 import { platformHooks } from '@/hooks/platform-hooks';
@@ -122,7 +124,14 @@ export default function AuditLogsPage() {
         <DashboardPageHeader
           description={t('Track activities done within your platform')}
           title={t('Audit Logs')}
-        />
+        >
+          <AuditLogExportDialog>
+            <Button variant="outline">
+              <Download className="size-4 me-2" />
+              {t('Export')}
+            </Button>
+          </AuditLogExportDialog>
+        </DashboardPageHeader>
         <DataTable
           emptyStateTextTitle={t('No audit logs found')}
           emptyStateTextDescription={t(

@@ -16,6 +16,62 @@ export const ListAuditEventsRequest = z.object({
 
 export type ListAuditEventsRequest = z.infer<typeof ListAuditEventsRequest>
 
+export enum AuditLogExportFormat {
+    CSV = 'csv',
+    JSON = 'json',
+}
+
+export enum AuditLogExportStatus {
+    PENDING = 'PENDING',
+    RUNNING = 'RUNNING',
+    COMPLETED = 'COMPLETED',
+    FAILED = 'FAILED',
+}
+
+export const AuditLogExportFiltersSchema = z.object({
+    projectId: z.array(z.string()).optional(),
+    userId: z.string().optional(),
+    action: z.array(z.string()).optional(),
+    createdAfter: z.string().optional(),
+    createdBefore: z.string().optional(),
+})
+
+export type AuditLogExportFilters = z.infer<typeof AuditLogExportFiltersSchema>
+
+export const CreateAuditLogExportRequest = z.object({
+    format: z.enum([AuditLogExportFormat.CSV, AuditLogExportFormat.JSON]).default(AuditLogExportFormat.CSV),
+    projectId: z.array(z.string()).optional(),
+    userId: z.string().optional(),
+    action: z.array(z.string()).optional(),
+    createdAfter: z.string().optional(),
+    createdBefore: z.string().optional(),
+})
+
+export type CreateAuditLogExportRequest = z.infer<typeof CreateAuditLogExportRequest>
+
+export const AuditLogExportSchema = z.object({
+    ...BaseModelSchema,
+    platformId: z.string(),
+    requestedById: z.string().optional(),
+    format: z.enum([AuditLogExportFormat.CSV, AuditLogExportFormat.JSON]),
+    status: z.enum([
+        AuditLogExportStatus.PENDING,
+        AuditLogExportStatus.RUNNING,
+        AuditLogExportStatus.COMPLETED,
+        AuditLogExportStatus.FAILED,
+    ]),
+    fileId: z.string().optional(),
+    fileName: z.string().optional(),
+    filters: AuditLogExportFiltersSchema,
+    eventCount: z.number(),
+    errorMessage: z.string().optional(),
+    completedAt: z.string().optional(),
+    downloadUrl: z.string().optional(),
+    downloadExpiresAt: z.string().optional(),
+})
+
+export type AuditLogExport = z.infer<typeof AuditLogExportSchema>
+
 const UserMeta = UserWithMetaInformation.pick({ email: true, id: true, firstName: true, lastName: true })
 
 export enum ApplicationEventName {

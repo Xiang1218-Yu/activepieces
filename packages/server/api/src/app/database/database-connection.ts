@@ -19,6 +19,7 @@ import { ApiKeyEntity } from '../ee/api-keys/api-key-entity'
 import { AppCredentialEntity } from '../ee/app-credentials/app-credentials.entity'
 import { AppSumoEntity } from '../ee/appsumo/appsumo.entity'
 import { AuditEventEntity } from '../ee/audit-logs/audit-event-entity'
+import { AuditLogExportEntity } from '../ee/audit-logs/audit-log-export-entity'
 import { ConnectionKeyEntity } from '../ee/connection-keys/connection-key.entity'
 import { EmbedSubdomainEntity } from '../ee/embed-subdomain/embed-subdomain.entity'
 import { FlowApprovalRequestEntity } from '../ee/flows/flow-approval/flow-approval-request.entity'
@@ -131,6 +132,7 @@ function getEntities(): EntitySchema<unknown>[] {
         TemplateEntity,
         GitRepoEntity,
         AuditEventEntity,
+        AuditLogExportEntity,
         ProjectReleaseEntity,
         PlatformAnalyticsReportEntity,
         EmbedSubdomainEntity,

@@ -82,6 +82,11 @@ export enum FileType {
      * Stored at the configured location (S3 when available). Kept indefinitely.
      */
     FLOW_BUNDLE = 'FLOW_BUNDLE',
+    /**
+     * Generated audit-log export (CSV/JSON) handed to the requesting platform
+     * admin through a one-time download link. Expires on the file-cleanup schedule.
+     */
+    AUDIT_LOG_EXPORT = 'AUDIT_LOG_EXPORT',
 }
 export enum FileCompression {
     NONE = 'NONE',

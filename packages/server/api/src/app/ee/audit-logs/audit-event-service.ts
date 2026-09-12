@@ -1,5 +1,5 @@
 import { Cursor, isNil, SeekPage } from '@activepieces/core-utils'
-import { ApplicationEvent } from '@activepieces/shared'
+import { ApplicationEvent, AuditLogExportFilters } from '@activepieces/shared'
 import { FastifyBaseLogger } from 'fastify'
 import { In } from 'typeorm'
 import { repoFactory } from '../../core/db/repo-factory'
@@ -63,6 +63,54 @@ export const auditLogService = (log: FastifyBaseLogger) => ({
             paginationResponse.cursor,
         )
     },
+    async *streamAll({ platformId, filters, batchSize, log }: StreamAllParams): AsyncGenerator<ApplicationEvent[]> {
+        let cursorCreated: string | null = null
+        let cursorId: string | null = null
+
+        for (;;) {
+            const queryBuilder = auditLogRepo().createQueryBuilder('audit_event')
+                .where('audit_event."platformId" = :platformId', { platformId })
+                .orderBy('audit_event.created', 'DESC')
+                .addOrderBy('audit_event.id', 'DESC')
+                .take(batchSize)
+
+            if (!isNil(filters.userId)) {
+                queryBuilder.andWhere('audit_event."userId" = :userId', { userId: filters.userId })
+            }
+            if (!isNil(filters.action) && filters.action.length > 0) {
+                queryBuilder.andWhere('audit_event.action IN (:...action)', { action: filters.action })
+            }
+            if (!isNil(filters.projectId) && filters.projectId.length > 0) {
+                queryBuilder.andWhere('audit_event."projectId" IN (:...projectId)', { projectId: filters.projectId })
+            }
+            if (!isNil(filters.createdAfter)) {
+                queryBuilder.andWhere('audit_event.created >= :createdAfter', { createdAfter: filters.createdAfter })
+            }
+            if (!isNil(filters.createdBefore)) {
+                queryBuilder.andWhere('audit_event.created <= :createdBefore', { createdBefore: filters.createdBefore })
+            }
+            if (!isNil(cursorCreated) && !isNil(cursorId)) {
+                queryBuilder.andWhere(
+                    '(audit_event.created < :cursorCreated OR (audit_event.created = :cursorCreated AND audit_event.id < :cursorId))',
+                    { cursorCreated, cursorId },
+                )
+            }
+
+            const batch = await queryBuilder.getMany()
+            if (batch.length === 0) {
+                return
+            }
+            yield batch
+
+            const last = batch[batch.length - 1]
+            cursorCreated = last.created
+            cursorId = last.id
+            if (batch.length < batchSize) {
+                return
+            }
+            log.debug({ batchSize, cursorId }, '[auditLogService#streamAll] fetched batch')
+        }
+    },
 })
 
 
@@ -75,4 +123,11 @@ type ListParams = {
     projectId?: string[]
     createdBefore?: string
     createdAfter?: string
+}
+
+type StreamAllParams = {
+    platformId: string
+    filters: AuditLogExportFilters
+    batchSize: number
+    log: FastifyBaseLogger
 }

@@ -11,6 +11,8 @@ import { auditEventsApi } from '../api/audit-events-api';
 
 export const auditLogKeys = {
   all: (searchParams: string) => ['audit-logs', searchParams] as const,
+  exports: () => ['audit-log-exports'] as const,
+  export: (id: string) => ['audit-log-export', id] as const,
 };
 
 export const auditLogQueries = {
