@@ -8,6 +8,7 @@ export const routesThatRequireProjectId = {
   flows: '/flows',
   singleFlow: '/flows/:flowId',
   automations: '/automations',
+  dependencies: '/dependencies',
   connections: '/connections',
   singleConnection: '/connections/:connectionId',
   variables: '/variables',

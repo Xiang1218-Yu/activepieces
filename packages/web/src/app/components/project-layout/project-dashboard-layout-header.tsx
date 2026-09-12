@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { BoxIcon } from '@/components/icons/box';
 import { ConnectIcon } from '@/components/icons/connect';
 import { HistoryIcon } from '@/components/icons/history';
+import { NetworkIcon } from '@/components/icons/network';
 import { ShieldIcon } from '@/components/icons/shield';
 import { VariableIcon } from '@/components/icons/variable';
 import { WorkflowIcon } from '@/components/icons/workflow';
@@ -106,6 +107,13 @@ export const ProjectDashboardLayoutHeader = () => {
       icon: ConnectIcon,
       hasPermission: checkAccess(Permission.READ_APP_CONNECTION),
       show: true,
+    },
+    {
+      to: authenticationSession.appendProjectRoutePrefix('/dependencies'),
+      label: t('Dependencies'),
+      icon: NetworkIcon,
+      hasPermission: checkAccess(Permission.READ_FLOW),
+      show: !isEmbedded,
     },
     {
       to: authenticationSession.appendProjectRoutePrefix('/variables'),

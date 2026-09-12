@@ -56,6 +56,10 @@ const VariablesPage = lazyWithRetry(
   () => import('./variables').then((m) => ({ default: m.VariablesPage })),
   'variables',
 );
+const DependenciesPage = lazyWithRetry(
+  () => import('./dependencies'),
+  'dependencies',
+);
 const ApTableEditorPage = lazyWithRetry(
   () => import('./tables/id').then((m) => ({ default: m.ApTableEditorPage })),
   'table-editor',
@@ -214,6 +218,20 @@ export const projectRoutes = [
           <PageTitle title="Connections">
             <SuspenseWrapper>
               <AppConnectionsPage />
+            </SuspenseWrapper>
+          </PageTitle>
+        </RoutePermissionGuard>
+      </ProjectDashboardLayout>
+    ),
+  }),
+  ...ProjectRouterWrapper({
+    path: routesThatRequireProjectId.dependencies,
+    element: (
+      <ProjectDashboardLayout>
+        <RoutePermissionGuard requiredPermissions={Permission.READ_FLOW}>
+          <PageTitle title="Dependencies">
+            <SuspenseWrapper>
+              <DependenciesPage />
             </SuspenseWrapper>
           </PageTitle>
         </RoutePermissionGuard>

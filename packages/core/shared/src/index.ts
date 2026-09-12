@@ -52,6 +52,7 @@ export * from './lib/automation/project-release/project-release.request'
 export * from './lib/automation/project-release/project-replace'
 export * from './lib/automation/project-release/project-state'
 export * from './lib/automation/websocket'
+export * from './lib/automation/dependency-graph'
 
 // ee
 export * from './lib/ee/billing'

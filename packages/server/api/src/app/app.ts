@@ -27,6 +27,9 @@ import { rateLimitModule } from './core/security/rate-limit'
 import { authenticationMiddleware } from './core/security/v2/authn/authentication-middleware'
 import { authorizationMiddleware } from './core/security/v2/authz/authorization-middleware'
 import { distributedLock, redisConnections } from './database/redis-connections'
+import { dependencyGraphHooks, DependencyGraphHooks } from './dependency-graph/dependency-graph.hooks'
+import { dependencyGraphModule } from './dependency-graph/dependency-graph.module'
+import { agentDependencyHooks } from './ee/agent/agent-dependency-hooks'
 import { agentEvalModule } from './ee/agent/agent-eval-controller'
 import { agentHelpers } from './ee/agent/agent-helpers'
 import { assertAgentsResolveInProject } from './ee/agent/agent-service'
@@ -267,6 +270,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
     await app.register(userModule)
     await app.register(templateModule)
     await app.register(platformAnalyticsModule)
+    await app.register(dependencyGraphModule)
 
     // Dev-only: accept browser debug logs into the shared evlog fs drain so a
     // chat run can be reconstructed end-to-end (web + api + worker). Never in cloud/prod.
@@ -360,6 +364,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
             billingProvider.set(autumnBillingProvider)
             resumePageHooks.set((log) => ({ getTheme: (params) => appearanceHelper.getTheme({ ...params, log }) }))
             flowPublishHooks.set(() => ({ assertReferencesResolve: assertAgentsResolveInProject }))
+            dependencyGraphHooks.set((): DependencyGraphHooks => agentDependencyHooks)
             exceptionHandler.initializeSentry(system.get(AppSystemProp.SENTRY_DSN))
             systemJobHandlers.registerJobHandler(SystemJobName.HARD_DELETE_PLATFORM, (data) => platformTeardownJobs(app.log).hardDeletePlatformHandler(data))
             break
@@ -399,6 +404,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
             billingProvider.set(autumnBillingProvider)
             resumePageHooks.set((log) => ({ getTheme: (params) => appearanceHelper.getTheme({ ...params, log }) }))
             flowPublishHooks.set(() => ({ assertReferencesResolve: assertAgentsResolveInProject }))
+            dependencyGraphHooks.set((): DependencyGraphHooks => agentDependencyHooks)
             break
         case ApEdition.COMMUNITY:
             await app.register(platformProjectModule)
