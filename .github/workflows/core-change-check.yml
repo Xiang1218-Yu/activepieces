@@ -1,0 +1,343 @@
+name: Core Change Check
+
+# Scoped PR gate: lint + unit-test only the core areas the PR touches
+# (shared types, engine, api, web, worker) and add migration checks when API
+# data models / migration directories change. PRs that are bulk piece changes
+# do not boot the full core suite — the dedicated piece workflows
+# (validate-publishable-packages, release-pieces) keep owning piece validation.
+#
+# This workflow is intentionally additive: it does not modify the triggers of
+# CI, the E2E workflows, or any release / continuous-delivery workflow.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  # Lightweight classification job: diff the PR against its base branch and
+  # decide which core scopes are affected, whether migration checks are needed,
+  # and whether the PR is a bulk piece change. No dependency install here.
+  changes:
+    name: Classify changed scope
+    runs-on: ubuntu-latest
+    if: github.repository == 'activepieces/activepieces'
+    outputs:
+      scopes: ${{ steps.classify.outputs.scopes }}
+      has_scopes: ${{ steps.classify.outputs.has_scopes }}
+      migrations: ${{ steps.classify.outputs.migrations }}
+      piece_heavy: ${{ steps.classify.outputs.piece_heavy }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: classify
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          # Mirror the diff base used by ci.yml (origin/main), but prefer the
+          # PR's actual base commit/branch when it is available locally.
+          BASE="origin/main"
+          if [ -n "${BASE_SHA}" ] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            BASE="${BASE_SHA}"
+          elif [ -n "${BASE_REF}" ] && git rev-parse --verify "origin/${BASE_REF}" >/dev/null 2>&1; then
+            BASE="origin/${BASE_REF}"
+          fi
+          echo "Diff base: ${BASE}"
+          git diff --name-only "${BASE}"...HEAD > changed-files.txt
+          echo "Changed files ($(wc -l < changed-files.txt)):"
+          cat changed-files.txt
+
+          matches() { grep -E "$1" changed-files.txt || true; }
+
+          # --- Core scope mapping -------------------------------------------------
+          # shared: shared types / common core packages consumed by every service
+          # engine: flow execution engine + sandbox
+          # api:    REST API (entities + migrations trigger migration checks too)
+          # web:    management UI
+          # worker: flow worker
+          scopes=()
+          [ -n "$(matches '^packages/core/shared/')" ] && scopes+=(shared)
+          [ -n "$(matches '^packages/server/engine/|^packages/server/sandbox/')" ] && scopes+=(engine)
+          [ -n "$(matches '^packages/server/api/')" ] && scopes+=(api)
+          [ -n "$(matches '^packages/web/')" ] && scopes+=(web)
+          [ -n "$(matches '^packages/server/worker/')" ] && scopes+=(worker)
+
+          # Repo-level dependency/build wiring can affect every package, so fan
+          # out to all core scopes rather than guessing.
+          if [ -n "$(matches '^bun\.lock$|^package\.json$|^turbo\.json$|^tsconfig\.base\.json$')" ]; then
+            for s in shared engine api web worker; do
+              printf '%s\n' "${scopes[@]}" | grep -qx "$s" || scopes+=("$s")
+            done
+          fi
+
+          # pieces-framework / pieces-common and the core pieces are bundled
+          # into the engine and imported by api/web/worker, so changes there
+          # must fan out to the consumers. Bulk *community/custom* piece PRs do
+          # not hit this branch and therefore do not force the core suite.
+          if [ -n "$(matches '^packages/pieces/(framework|common)/|^packages/pieces/core/')" ]; then
+            for s in engine api web worker; do
+              printf '%s\n' "${scopes[@]}" | grep -qx "$s" || scopes+=("$s")
+            done
+          fi
+
+          # Deduplicate while preserving order.
+          mapfile -t SCOPES < <(printf '%s\n' "${scopes[@]}" | grep -v '^$' | awk '!seen[$0]++')
+
+          # --- Migration checks ---------------------------------------------------
+          # Any new/changed migration, *.entity.ts data model, or the migration
+          # data-source wiring under the API package requires drift + rollback
+          # checks (same commands ci.yml runs unconditionally).
+          migrations=false
+          if [ -n "$(matches '^packages/server/api/src/app/database/migration/|^packages/server/api/src/app/ee/database/migrations/|^packages/server/api/src/app/database/migration-data-source\.ts$|^packages/server/api/src/app/database/migration\.ts$|\.entity\.ts$')" ]; then
+            migrations=true
+          fi
+
+          # --- Bulk piece PR detection -------------------------------------------
+          # A change dominated by community/custom pieces skips the core suite
+          # entirely; piece validation keeps running in its own workflows.
+          total=$(wc -l < changed-files.txt)
+          piece_files=$(matches '^packages/pieces/(community|custom)/' | wc -l)
+          piece_heavy=false
+          if [ "${piece_files}" -ge 25 ] && [ "${total}" -gt 0 ] && [ $(( piece_files * 100 / total )) -ge 60 ]; then
+            piece_heavy=true
+          fi
+
+          if [ "${piece_heavy}" = true ]; then
+            echo "Bulk piece change detected (${piece_files}/${total} files) — skipping core suite."
+            SCOPES_JSON='[]'
+            has_scopes=false
+          elif [ "${#SCOPES[@]}" -gt 0 ]; then
+            has_scopes=true
+            SCOPES_JSON=$(printf '%s\n' "${SCOPES[@]}" | jq -R . | jq -sc .)
+          else
+            SCOPES_JSON='[]'
+            has_scopes=false
+          fi
+
+          {
+            echo "scopes=${SCOPES_JSON}"
+            echo "has_scopes=${has_scopes}"
+            echo "migrations=${migrations}"
+            echo "piece_heavy=${piece_heavy}"
+          } >> "$GITHUB_OUTPUT"
+
+          # --- Job summary --------------------------------------------------------
+          {
+            echo "## Core Change Check — change classification"
+            echo ""
+            echo "| Signal | Result |"
+            echo "| --- | --- |"
+            echo "| Changed files | ${total} |"
+            echo "| Core scopes hit | ${SCOPES_JSON} |"
+            echo "| Migration checks required | ${migrations} |"
+            echo "| Bulk piece change (core suite skipped) | ${piece_heavy} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  lint:
+    name: Lint ${{ matrix.scope }}
+    needs: changes
+    if: needs.changes.outputs.has_scopes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: ${{ fromJSON(needs.changes.outputs.scopes) }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Deliberately unpinned, same as ci.yml: PRs validate against latest Bun.
+          bun-version: latest
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - run: bun install
+
+      - name: Turbo Cache
+        uses: rharkor/caching-for-turbo@v2.4.2
+        with:
+          provider: s3
+          s3-bucket: ${{ secrets.TURBO_CACHE_S3_BUCKET }}
+          s3-region: auto
+          s3-endpoint: ${{ secrets.TURBO_CACHE_S3_ENDPOINT }}
+          s3-access-key-id: ${{ secrets.TURBO_CACHE_S3_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.TURBO_CACHE_S3_SECRET_ACCESS_KEY }}
+          max-age: 3w
+          max-size: 20gb
+
+      - name: Lint ${{ matrix.scope }}
+        run: |
+          set -euo pipefail
+          case "${{ matrix.scope }}" in
+            shared) FILTERS=(--filter=@activepieces/shared) ;;
+            engine) FILTERS=(--filter=@activepieces/engine) ;;
+            api)    FILTERS=(--filter=api) ;;
+            web)    FILTERS=(--filter=web) ;;
+            worker) FILTERS=(--filter=worker) ;;
+            *) echo "Unknown scope: ${{ matrix.scope }}"; exit 1 ;;
+          esac
+          npx turbo run lint "${FILTERS[@]}"
+
+  unit-tests:
+    name: Unit tests ${{ matrix.scope }}
+    needs: changes
+    if: needs.changes.outputs.has_scopes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: ${{ fromJSON(needs.changes.outputs.scopes) }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Deliberately unpinned, same as ci.yml: PRs validate against latest Bun.
+          bun-version: latest
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - run: bun install
+
+      - name: Turbo Cache
+        uses: rharkor/caching-for-turbo@v2.4.2
+        with:
+          provider: s3
+          s3-bucket: ${{ secrets.TURBO_CACHE_S3_BUCKET }}
+          s3-region: auto
+          s3-endpoint: ${{ secrets.TURBO_CACHE_S3_ENDPOINT }}
+          s3-access-key-id: ${{ secrets.TURBO_CACHE_S3_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.TURBO_CACHE_S3_SECRET_ACCESS_KEY }}
+          max-age: 3w
+          max-size: 20gb
+
+      - name: Run unit tests (${{ matrix.scope }})
+        run: |
+          set -euo pipefail
+          case "${{ matrix.scope }}" in
+            shared)
+              # Shared types: the package test run plus a build gives a
+              # compile-level typecheck for every downstream consumer.
+              npx turbo run test build --filter=@activepieces/shared
+              ;;
+            engine)
+              npx turbo run test --filter=@activepieces/engine
+              ;;
+            api)
+              # Same commands ci.yml runs for api, serialized so the migration
+              # passes don't race. test-* are non-cacheable in turbo.json.
+              npx turbo run test-ce test-ee test-cloud --filter=api --concurrency=1
+              ;;
+            web)
+              npx turbo run test --filter=web
+              ;;
+            worker)
+              npx turbo run test --filter=worker
+              ;;
+            *)
+              echo "Unknown scope: ${{ matrix.scope }}"
+              exit 1
+              ;;
+          esac
+
+      # Only when API data models / migration directories changed. Runs the
+      # schema-drift gate (migration:generate --check) and the rollback-safety
+      # scan (breaking=true on destructive DDL), matching ci.yml.
+      - name: Check migrations (drift + rollback safety)
+        if: matrix.scope == 'api' && needs.changes.outputs.migrations == 'true'
+        run: |
+          set -euo pipefail
+          npx turbo run check-migrations --filter=api
+          npx tsx tools/scripts/check-migration-rollback.ts
+
+  # Always-present rollup job: gives one clear aggregate status for branch
+  # protection and PR authors, including the "nothing relevant changed" and
+  # "bulk piece PR" cases where all check jobs were skipped.
+  summary:
+    name: Core check summary
+    needs: [changes, lint, unit-tests]
+    if: always() && github.repository == 'activepieces/activepieces'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compute result
+        id: result
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          LINT: ${{ needs.lint.result }}
+          TESTS: ${{ needs.unit-tests.result }}
+          HAS_SCOPES: ${{ needs.changes.outputs.has_scopes }}
+          MIGRATIONS: ${{ needs.changes.outputs.migrations }}
+          PIECE_HEAVY: ${{ needs.changes.outputs.piece_heavy }}
+          SCOPES: ${{ needs.changes.outputs.scopes }}
+        run: |
+          set -euo pipefail
+
+          status_icon() { case "$1" in success) echo "✅ passed" ;; skipped) echo "⏭️ skipped" ;; *) echo "❌ $1" ;; esac; }
+
+          failed=false
+          [ "$CHANGES" = "failure" ] && failed=true
+          [ "$LINT" = "failure" ] && failed=true
+          [ "$TESTS" = "failure" ] && failed=true
+
+          {
+            echo "## Core Change Check — summary"
+            echo ""
+            echo "| Job | Result |"
+            echo "| --- | --- |"
+            echo "| Classify changed scope | $(status_icon "$CHANGES") |"
+            echo "| Lint (scoped) | $(status_icon "$LINT") |"
+            echo "| Unit tests (scoped) | $(status_icon "$TESTS") |"
+            echo ""
+            echo "- Scopes checked: ${SCOPES}"
+            echo "- Migration checks appended: ${MIGRATIONS}"
+            if [ "$PIECE_HEAVY" = true ]; then
+              echo "- Bulk piece change detected — core suite intentionally not started; existing piece validation workflows still apply."
+            elif [ "$HAS_SCOPES" != true ]; then
+              echo "- No core paths (shared / engine / api / web / worker) touched — no checks required."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          cat "$GITHUB_STEP_SUMMARY"
+
+          if [ "$failed" = true ]; then
+            echo "::error::One or more core checks failed; see the lint / unit-tests job logs above."
+            exit 1
+          fi
+          echo "All applicable core checks passed (or were safely skipped)."
+
+      - name: Notify Discord on failure
+        if: failure()
+        run: |
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "{\"content\": \"🚨 **Core Change Check Failed** 🚨\\n\\n**Repository:** ${{ github.repository }}\\n**Pull Request:** ${{ github.event.pull_request.html_url }}\\n**Commit:** ${{ github.sha }}\\n**Action URL:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\\n\\nScoped lint/unit tests or migration checks failed. Please check the job logs for more details.\"}" \
+            ${{ secrets.DISCORD_ON_CALL_WEBHOOK }}
