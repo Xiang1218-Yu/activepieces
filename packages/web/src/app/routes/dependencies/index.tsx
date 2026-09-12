@@ -1,20 +1,17 @@
 import { isNil } from '@activepieces/core-utils';
-import {
-  DependencyEdgeStatus,
-  DependencyNode,
-  DependencyNodeType,
-} from '@activepieces/shared';
+import { DependencyEdgeStatus, DependencyNodeType } from '@activepieces/shared';
 import {
   Background,
   BackgroundVariant,
   Controls,
   Edge,
   ReactFlow,
+  Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { t } from 'i18next';
 import { Search } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { DataFetchErrorState } from '@/components/custom/data-fetch-error-state';
@@ -25,7 +22,9 @@ import { Input } from '@/components/ui/input';
 import {
   dependencyGraphLabels,
   dependencyGraphLayout,
+  dependencyGraphNavigation,
   dependencyGraphQueries,
+  dependencyGraphVisible,
 } from '@/features/dependencies';
 import { authenticationSession } from '@/lib/authentication-session';
 import { cn } from '@/lib/utils';
@@ -36,6 +35,7 @@ import {
 } from './dependency-node';
 
 const RENDER_BATCH_SIZE = 100;
+const VIEWPORT_LOAD_MARGIN = 400;
 
 const NODE_TYPE_ORDER: DependencyNodeType[] = [
   DependencyNodeType.FLOW,
@@ -49,6 +49,7 @@ const nodeTypes = { dependency: DependencyGraphNode };
 
 export default function DependenciesPage() {
   const navigate = useNavigate();
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
   const { data, isLoading, isError, refetch } =
     dependencyGraphQueries.useProjectDependencyGraph();
   const [search, setSearch] = useState('');
@@ -84,40 +85,68 @@ export default function DependenciesPage() {
     return { nodes, edges };
   }, [data, search, hiddenTypes]);
 
-  const positions = useMemo(
+  const visibleGraph = useMemo(
     () =>
-      dependencyGraphLayout.layout({
+      dependencyGraphVisible.buildVisibleGraph({
         nodes: filtered.nodes,
         edges: filtered.edges,
+        renderLimit,
       }),
-    [filtered],
+    [filtered, renderLimit],
   );
 
-  const visibleNodes = filtered.nodes.slice(0, renderLimit);
-  const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
-
-  const flowNodes: DependencyGraphFlowNode[] = visibleNodes.map((node) => ({
-    id: node.id,
-    type: 'dependency',
-    position: positions.get(node.id) ?? { x: 0, y: 0 },
-    data: { dependency: node },
-    draggable: true,
+  const flowNodes: DependencyGraphFlowNode[] = visibleGraph.nodes.map(
+    (node) => ({
+      id: node.id,
+      type: 'dependency',
+      position: visibleGraph.positions.get(node.id) ?? { x: 0, y: 0 },
+      data: { dependency: node },
+      draggable: true,
+    }),
+  );
+  const flowEdges: Edge[] = visibleGraph.edges.map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    animated: edge.status === DependencyEdgeStatus.DRAFT_ONLY,
+    style:
+      edge.status === DependencyEdgeStatus.DRAFT_ONLY
+        ? { strokeDasharray: '6 4' }
+        : undefined,
   }));
-  const flowEdges: Edge[] = filtered.edges
-    .filter(
-      (edge) =>
-        visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target),
-    )
-    .map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      animated: edge.status === DependencyEdgeStatus.DRAFT_ONLY,
-      style:
-        edge.status === DependencyEdgeStatus.DRAFT_ONLY
-          ? { strokeDasharray: '6 4' }
-          : undefined,
-    }));
+
+  const loadNextBatch = () => {
+    setRenderLimit((limit) =>
+      Math.min(limit + RENDER_BATCH_SIZE, filtered.nodes.length),
+    );
+  };
+
+  const handleMoveEnd = (viewport: Viewport) => {
+    if (!visibleGraph.hasMore) {
+      return;
+    }
+    const container = canvasContainerRef.current;
+    if (isNil(container) || visibleGraph.positions.size === 0) {
+      return;
+    }
+    const viewportRect = {
+      x: -viewport.x / viewport.zoom,
+      y: -viewport.y / viewport.zoom,
+      width: container.clientWidth / viewport.zoom,
+      height: container.clientHeight / viewport.zoom,
+    };
+    const renderedBounds = computeBounds(visibleGraph.positions);
+    const reachesBeyondRendered =
+      viewportRect.x + viewportRect.width >
+        renderedBounds.maxX + VIEWPORT_LOAD_MARGIN ||
+      viewportRect.y + viewportRect.height >
+        renderedBounds.maxY + VIEWPORT_LOAD_MARGIN ||
+      viewportRect.x < renderedBounds.minX - VIEWPORT_LOAD_MARGIN ||
+      viewportRect.y < renderedBounds.minY - VIEWPORT_LOAD_MARGIN;
+    if (reachesBeyondRendered) {
+      loadNextBatch();
+    }
+  };
 
   const toggleType = (type: DependencyNodeType) => {
     setHiddenTypes((previous) => {
@@ -129,47 +158,6 @@ export default function DependenciesPage() {
       }
       return next;
     });
-  };
-
-  const navigateToNode = (node: DependencyNode) => {
-    if (isNil(node.refId)) {
-      if (node.type === DependencyNodeType.CONNECTION) {
-        navigate(
-          authenticationSession.appendProjectRoutePrefix('/connections'),
-        );
-      }
-      return;
-    }
-    switch (node.type) {
-      case DependencyNodeType.FLOW:
-        navigate(
-          authenticationSession.appendProjectRoutePrefix(
-            `/flows/${node.refId}`,
-          ),
-        );
-        break;
-      case DependencyNodeType.TABLE:
-        navigate(
-          authenticationSession.appendProjectRoutePrefix(
-            `/tables/${node.refId}`,
-          ),
-        );
-        break;
-      case DependencyNodeType.AGENT:
-        navigate(
-          authenticationSession.appendProjectRoutePrefix(
-            `/agents/${node.refId}`,
-          ),
-        );
-        break;
-      case DependencyNodeType.CONNECTION:
-        navigate(
-          authenticationSession.appendProjectRoutePrefix('/connections'),
-        );
-        break;
-      case DependencyNodeType.PIECE:
-        break;
-    }
   };
 
   return (
@@ -213,7 +201,10 @@ export default function DependenciesPage() {
           {t('Draft-only references')}
         </span>
       </div>
-      <div className="relative min-h-0 flex-1 border-t">
+      <div
+        className="relative min-h-0 flex-1 border-t"
+        ref={canvasContainerRef}
+      >
         {isLoading && (
           <div className="flex h-full items-center justify-center">
             <LoadingSpinner className="size-8" />
@@ -246,27 +237,29 @@ export default function DependenciesPage() {
             onlyRenderVisibleElements
             nodesConnectable={false}
             deleteKeyCode={null}
-            onNodeClick={(_, node) => navigateToNode(node.data.dependency)}
+            onMoveEnd={(_, viewport) => handleMoveEnd(viewport)}
+            onNodeClick={(_, node) => {
+              const path = dependencyGraphNavigation.getNodePath(
+                node.data.dependency,
+              );
+              if (!isNil(path)) {
+                navigate(authenticationSession.appendProjectRoutePrefix(path));
+              }
+            }}
           >
             <Background variant={BackgroundVariant.Dots} gap={24} size={1} />
             <Controls showInteractive={false} />
           </ReactFlow>
         )}
-        {!isLoading && !isError && renderLimit < filtered.nodes.length && (
+        {!isLoading && !isError && visibleGraph.hasMore && (
           <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full border bg-background px-4 py-2 shadow-md">
             <span className="text-xs text-muted-foreground">
               {t('Showing {shown} of {total} nodes', {
-                shown: visibleNodes.length,
-                total: filtered.nodes.length,
+                shown: visibleGraph.nodes.length,
+                total: visibleGraph.totalCount,
               })}
             </span>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                setRenderLimit((limit) => limit + RENDER_BATCH_SIZE)
-              }
-            >
+            <Button size="sm" variant="outline" onClick={loadNextBatch}>
               {t('Show more')}
             </Button>
           </div>
@@ -274,4 +267,20 @@ export default function DependenciesPage() {
       </div>
     </div>
   );
+}
+
+function computeBounds(positions: Map<string, { x: number; y: number }>) {
+  const nodeWidth = dependencyGraphLayout.nodeWidth;
+  const nodeHeight = dependencyGraphLayout.nodeHeight;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const position of positions.values()) {
+    minX = Math.min(minX, position.x);
+    minY = Math.min(minY, position.y);
+    maxX = Math.max(maxX, position.x + nodeWidth);
+    maxY = Math.max(maxY, position.y + nodeHeight);
+  }
+  return { minX, minY, maxX, maxY };
 }
