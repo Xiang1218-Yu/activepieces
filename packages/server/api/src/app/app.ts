@@ -99,6 +99,7 @@ import { mcpServerModule } from './mcp/mcp-module'
 import { mcpOAuthApproveController } from './mcp/oauth/code/mcp-oauth-approve.controller'
 import { mcpOAuthGrantsController } from './mcp/oauth/token/mcp-oauth-grants.controller'
 import { communityPiecesModule } from './pieces/community-piece-module'
+import { pieceCompatibilityModule } from './pieces/compatibility/piece-compatibility.module'
 import { startDevPieceWatcher } from './pieces/dev-piece-watcher'
 import { pieceModule } from './pieces/metadata/piece-metadata-controller'
 import { pieceMetadataService } from './pieces/metadata/piece-metadata-service'
@@ -247,6 +248,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
     await app.register(triggerModule)
     await app.register(platformModule)
     await app.register(piecesReportModule)
+    await app.register(pieceCompatibilityModule)
     await app.register(platformConfigurationModule)
     await app.register(humanInputModule)
     await app.register(mcpServerModule)
