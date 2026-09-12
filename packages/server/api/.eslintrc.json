@@ -13,6 +13,28 @@
   "overrides": [
     {
       "files": [
+        "src/app/ee/audit-logs/**/*.ts"
+      ],
+      "rules": {
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "CallExpression[callee.property.name='getDataOrThrow']",
+            "message": "Audit export downloads must stream (fileService.openDataStream) or redirect to a presigned URL; getDataOrThrow buffers the entire file."
+          },
+          {
+            "selector": "CallExpression[callee.property.name='getDataOrUndefined']",
+            "message": "Audit export downloads must stream (fileService.openDataStream); getDataOrUndefined buffers the entire file."
+          },
+          {
+            "selector": "CallExpression[callee.property.name='getFile']",
+            "message": "s3Helper.getFile buffers the whole object; use s3Helper.getFileStream in the audit export download path."
+          }
+        ]
+      }
+    },
+    {
+      "files": [
         "*.ts",
         "*.js"
       ],

@@ -41,6 +41,10 @@ export const AuditLogExportEntity = new EntitySchema<AuditLogExportSchema>({
             type: Number,
             default: 0,
         },
+        attempts: {
+            type: Number,
+            default: 0,
+        },
         errorMessage: {
             type: String,
             nullable: true,

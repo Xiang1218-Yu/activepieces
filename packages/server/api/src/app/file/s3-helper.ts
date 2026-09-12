@@ -104,16 +104,38 @@ export const s3Helper = (log: FastifyBaseLogger) => ({
         })
         return Buffer.from(await response.Body!.transformToByteArray())
     },
-    async getS3SignedUrl(s3Key: string, fileName: string): Promise<string> {
-        const client = getS3Client()
-        const disposition = contentDisposition(fileName, { type: 'attachment' })
-        const command = new GetObjectCommand({
+    /**
+     * Opens an S3 object as a Node stream — the body is never fully buffered.
+     * Throws if the runtime returns an unsupported (non-stream, non-web) body.
+     */
+    async getFileStream(s3Key: string): Promise<Readable> {
+        const response = await getS3Client().send(new GetObjectCommand({
             Bucket: getS3BucketName(),
             Key: s3Key,
+        }))
+        const body = response.Body
+        if (body instanceof Readable) {
+            return body
+        }
+        throw new Error(`S3 object ${s3Key} did not return a readable stream`)
+    },
+    async getS3SignedUrl(s3Key: string, fileName: string): Promise<string> {
+        return this.getS3SignedUrlWithExpiry({
+            s3Key,
+            fileName,
+            expiresInSeconds: dayjs.duration(7, 'days').asSeconds(),
+        })
+    },
+    async getS3SignedUrlWithExpiry(params: { s3Key: string, fileName: string, expiresInSeconds: number }): Promise<string> {
+        const client = getS3Client()
+        const disposition = contentDisposition(params.fileName, { type: 'attachment' })
+        const command = new GetObjectCommand({
+            Bucket: getS3BucketName(),
+            Key: params.s3Key,
             ResponseContentDisposition: disposition,
         })
         return getSignedUrl(client, command, {
-            expiresIn: dayjs.duration(7, 'days').asSeconds(),
+            expiresIn: params.expiresInSeconds,
         })
     },
     async putS3SignedUrl({ s3Key, contentLength, contentEncoding }: PutS3SignedUrlParams): Promise<string> {

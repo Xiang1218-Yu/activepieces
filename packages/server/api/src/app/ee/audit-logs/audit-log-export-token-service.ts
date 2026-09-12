@@ -1,4 +1,4 @@
-import { ActivepiecesError, apId, ErrorCode } from '@activepieces/core-utils'
+import { ActivepiecesError, apId, ErrorCode, isNil } from '@activepieces/core-utils'
 import dayjs from 'dayjs'
 import { FastifyBaseLogger } from 'fastify'
 import { redisConnections } from '../../database/redis-connections'
@@ -33,12 +33,28 @@ export const auditLogExportTokenService = (log: FastifyBaseLogger) => ({
         }
     },
     async redeemToken(token: string): Promise<DownloadTokenClaims> {
-        const claims = await jwtUtils.decodeAndVerify<DownloadTokenClaims>({
-            jwt: token,
-            key: await jwtUtils.getJwtSecret(),
-            algorithm: JwtSignAlgorithm.HS256,
-            audience: JwtAudience.AUDIT_LOG_EXPORT_DOWNLOAD,
-        })
+        let claims: DownloadTokenClaims
+        try {
+            claims = await jwtUtils.decodeAndVerify<DownloadTokenClaims>({
+                jwt: token,
+                key: await jwtUtils.getJwtSecret(),
+                algorithm: JwtSignAlgorithm.HS256,
+                audience: JwtAudience.AUDIT_LOG_EXPORT_DOWNLOAD,
+            })
+        }
+        catch {
+            throw new ActivepiecesError({
+                code: ErrorCode.INVALID_BEARER_TOKEN,
+                params: { message: 'invalid or expired audit log export token' },
+            })
+        }
+
+        if (isNil(claims.exportId) || isNil(claims.platformId) || isNil(claims.fileId) || isNil(claims.jti)) {
+            throw new ActivepiecesError({
+                code: ErrorCode.INVALID_BEARER_TOKEN,
+                params: { message: 'malformed audit log export token' },
+            })
+        }
 
         const redis = await redisConnections.useExisting()
         const redemptionKey = `audit-log-export:downloaded:${claims.jti}`
@@ -46,7 +62,7 @@ export const auditLogExportTokenService = (log: FastifyBaseLogger) => ({
         if (firstUse === null) {
             log.warn({ exportId: claims.exportId }, '[auditLogExportTokenService#redeemToken] reuse of one-time download link rejected')
             throw new ActivepiecesError({
-                code: ErrorCode.VALIDATION,
+                code: ErrorCode.INVALID_BEARER_TOKEN,
                 params: { message: 'This download link has already been used' },
             })
         }

@@ -19,6 +19,7 @@ export class AddAuditLogExport1842000000000 implements Migration {
                 "fileName" character varying,
                 "filters" jsonb,
                 "eventCount" integer NOT NULL DEFAULT 0,
+                "attempts" integer NOT NULL DEFAULT 0,
                 "errorMessage" character varying,
                 "completedAt" timestamp with time zone,
                 CONSTRAINT "pk_audit_log_export" PRIMARY KEY ("id"),

@@ -120,6 +120,11 @@ export const fileService = (log: FastifyBaseLogger) => ({
         }
 
     },
+    /**
+     * Loads and decompresses the ENTIRE file into a Buffer. Never use this for a
+     * user-facing download path — large files buffer in the request thread.
+     * Downloads must stream via `openDataStream` or redirect to a presigned URL.
+     */
     async getDataOrThrow({ projectId, fileId, type }: GetOneParams): Promise<GetDataResponse> {
         const file = await fileRepo().findOneBy({
             projectId,
@@ -145,6 +150,67 @@ export const fileService = (log: FastifyBaseLogger) => ({
             data,
             fileName: file.fileName ?? undefined,
         }
+    },
+    async getPlatformFileOrThrow(params: { platformId: string, fileId: string, type: FileType }): Promise<Omit<File, 'data'>> {
+        const file = await fileRepo().findOne({
+            select: [
+                'id',
+                'created',
+                'updated',
+                'projectId',
+                'platformId',
+                'type',
+                'compression',
+                'location',
+                'size',
+                'fileName',
+                's3Key',
+                'metadata',
+            ],
+            where: {
+                id: params.fileId,
+                platformId: params.platformId,
+                type: params.type,
+            },
+        })
+        if (isNil(file)) {
+            throw new ActivepiecesError({
+                code: ErrorCode.ENTITY_NOT_FOUND,
+                params: {
+                    entityType: 'file',
+                    entityId: params.fileId,
+                    message: 'File not found',
+                },
+            })
+        }
+        return file
+    },
+    async openDataStream(file: Pick<File, 'id' | 'location' | 's3Key' | 'compression' | 'type'>): Promise<Readable> {
+        if (file.compression !== FileCompression.NONE) {
+            throw new ActivepiecesError({
+                code: ErrorCode.VALIDATION,
+                params: { message: `Streaming is only supported for uncompressed files (file ${file.id})` },
+            })
+        }
+        if (file.location === FileLocation.S3) {
+            if (isNil(file.s3Key)) {
+                throw new ActivepiecesError({
+                    code: ErrorCode.ENTITY_NOT_FOUND,
+                    params: {
+                        entityType: 'file',
+                        entityId: file.id,
+                        message: 'File is marked as S3 but has no key',
+                    },
+                })
+            }
+            return s3Helper(log).getFileStream(file.s3Key)
+        }
+        const row = await fileRepo().findOne({
+            select: ['data'],
+            where: { id: file.id },
+        })
+        assertNotNullOrUndefined(row, `file ${file.id}`)
+        return bufferToChunkedReadable(Buffer.isBuffer(row.data) ? row.data : Buffer.from(row.data ?? []))
     },
     async delete(params: { projectId: ProjectId, fileId: FileId }): Promise<void> {
         const file = await fileRepo().findOneBy({
@@ -368,6 +434,16 @@ export function getLocationForFile(type: FileType) {
 
 export function getDownloadName(file: Pick<File, 'id' | 'fileName' | 'type'>): string {
     return file.fileName ?? `${file.id}.${file.type === FileType.FLOW_RUN_LOG_SLICE ? 'json' : 'bin'}`
+}
+
+function bufferToChunkedReadable(buffer: Buffer): Readable {
+    const chunkSize = 1024 * 1024
+    function* chunks(): Generator<Buffer> {
+        for (let offset = 0; offset < buffer.length; offset += chunkSize) {
+            yield buffer.subarray(offset, offset + chunkSize)
+        }
+    }
+    return Readable.from(chunks())
 }
 
 export function getEffectiveExecutionDataRetentionDays(executionDataRetentionDays: number | null | undefined): number {

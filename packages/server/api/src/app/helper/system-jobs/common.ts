@@ -46,6 +46,7 @@ type ToolSearchReindexSystemJobData = {
 
 type AuditLogExportSystemJobData = {
     exportId: string
+    maxAttempts?: number
 }
 
 type SystemJobDataMap = {
@@ -72,7 +73,14 @@ export type SystemJobDefinition<T extends SystemJobName> = {
     jobId: string
 }
 
-export type SystemJobHandler<T extends SystemJobName = SystemJobName> = (data: SystemJobData<T>) => Promise<void>
+export type SystemJobContext = {
+    attemptsMade: number
+}
+
+export type SystemJobHandler<T extends SystemJobName = SystemJobName> = (
+    data: SystemJobData<T>,
+    job?: SystemJobContext,
+) => Promise<void>
 
 type OneTimeJobSchedule = {
     type: 'one-time'

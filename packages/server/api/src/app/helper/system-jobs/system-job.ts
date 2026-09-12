@@ -48,7 +48,7 @@ export const systemJobsSchedule = (log: FastifyBaseLogger): SystemJobSchedule =>
                 log.debug({ jobName: job.name }, '[systemJob#worker] Executing job')
 
                 const jobHandler = systemJobHandlers.getJobHandler(job.name)
-                await jobHandler(job.data)
+                await jobHandler(job.data, job)
             },
             {
                 connection: await redisConnections.create(),

@@ -12,7 +12,7 @@ import { z } from 'zod'
 import { securityAccess } from '../../core/security/authorization/fastify-security'
 import { platformMustHaveFeatureEnabled } from '../authentication/ee-authorization'
 import { auditLogService } from './audit-event-service'
-import { auditLogExportService } from './audit-log-export-service'
+import { auditLogExportService, DownloadTransport } from './audit-log-export-service'
 import { auditLogExportJobs } from './audit-log-export.jobs'
 export const auditEventModule: FastifyPluginAsyncZod = async (app) => {
     auditLogService(app.log).setup()
@@ -82,13 +82,19 @@ const auditEventController: FastifyPluginAsyncZod = async (app) => {
 
 const auditEventDownloadController: FastifyPluginAsyncZod = async (app) => {
     app.get('/:id/download', DownloadAuditLogExportEndpoint, async (request, reply) => {
-        const { data, fileName } = await auditLogExportService(request.log).downloadByToken(request.query.token)
+        const download = await auditLogExportService(request.log).prepareDownload({ token: request.query.token })
+        if (download.kind === DownloadTransport.REDIRECT) {
+            return reply
+                .status(StatusCodes.TEMPORARY_REDIRECT)
+                .header('Location', download.redirectUrl)
+                .send()
+        }
         return reply
             .type('application/octet-stream')
             .header('X-Content-Type-Options', 'nosniff')
-            .header('Content-Disposition', contentDisposition(fileName, { type: 'attachment' }))
+            .header('Content-Disposition', contentDisposition(download.fileName, { type: 'attachment' }))
             .status(StatusCodes.OK)
-            .send(data)
+            .send(download.stream)
     })
 }
 
