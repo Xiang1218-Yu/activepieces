@@ -1,5 +1,6 @@
 import { isNil, Permission } from '@activepieces/core-utils';
 import { t } from 'i18next';
+import { CalendarClock } from 'lucide-react';
 import { useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -87,6 +88,13 @@ export const ProjectDashboardLayoutHeader = () => {
       to: authenticationSession.appendProjectRoutePrefix('/automations'),
       label: t('Automations'),
       icon: WorkflowIcon,
+      hasPermission: checkAccess(Permission.READ_FLOW),
+      show: true,
+    },
+    {
+      to: authenticationSession.appendProjectRoutePrefix('/trigger-calendar'),
+      label: t('Trigger Calendar'),
+      icon: CalendarClock,
       hasPermission: checkAccess(Permission.READ_FLOW),
       show: true,
     },

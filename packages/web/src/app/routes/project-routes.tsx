@@ -18,6 +18,7 @@ import { ProjectRouterWrapper } from '../guards/project-route-wrapper';
 
 import { ApprovalsPage } from './approvals';
 import { AutomationsPage } from './automations';
+import { TriggerCalendarPage } from './trigger-calendar';
 const AgentEditorPage = lazyWithRetry(
   () => import('./agents/id').then((m) => ({ default: m.AgentEditorPage })),
   'agent-editor',
@@ -123,6 +124,20 @@ export const projectRoutes = [
   ...ProjectRouterWrapper({
     path: routesThatRequireProjectId.flows,
     element: <Navigate to={routesThatRequireProjectId.automations} replace />,
+  }),
+  ...ProjectRouterWrapper({
+    path: routesThatRequireProjectId.triggerCalendar,
+    element: (
+      <ProjectDashboardLayout>
+        <RoutePermissionGuard requiredPermissions={[Permission.READ_FLOW]}>
+          <PageTitle title="Trigger Calendar">
+            <SuspenseWrapper>
+              <TriggerCalendarPage />
+            </SuspenseWrapper>
+          </PageTitle>
+        </RoutePermissionGuard>
+      </ProjectDashboardLayout>
+    ),
   }),
   ...ProjectRouterWrapper({
     path: routesThatRequireProjectId.singleFlow,

@@ -28,6 +28,7 @@ Triggers define how and when a flow starts. The module handles registration, eve
 - **Renewal jobs** re-register expiring webhook pieces via the ON_RENEW hook.
 - **`*/X` cron is not "every X minutes"** — it means "minutes divisible by X", so it double-fires at :00 and :X for X > 30 and gaps unevenly when X doesn't divide 60. Use `INTERVAL`/`intervalMs` for a rolling interval; reserve cron for wall-clock schedules. This bit the default poll schedule until GIT-1632.
 - **Trigger health** (`triggerRunStats`): Redis key `trigger_run:{platformId}:{pieceName}:{date}:{status}`, 14-day retention, shown in Platform Admin (Cloud).
+- **Project Trigger Calendar** (`GET /v1/trigger-calendar/calendar`, `trigger/trigger-calendar/`): reads non-deleted, non-simulate `trigger_source` rows for ENABLED flows and computes upcoming occurrences **server-side only** with `cron-parser` 4.9 — the exact library/version BullMQ uses for `repeat.pattern`, so the browser never parses cron. CRON sources become calendar occurrences (with per-occurrence UTC offset and a DST flag); `INTERVAL` sources (`every_x_minutes`, default poll interval) cannot be placed on a wall-clock calendar and are listed separately alongside WEBHOOK/APP_WEBHOOK/MANUAL. Invalid cron / unknown timezone / invalid interval are returned in `issues`, never dropped; `conflicts` groups occurrences of *different* flows landing in the same minute. Filters: flowIds, folderIds (the `NULL` sentinel means uncategorized), instance timezones, window 1–90 days (default 7). `UTC` is a valid schedule timezone but is **not** in `Intl.supportedValuesOf('timeZone')` — validate timezones with a `DateTimeFormat` probe, not the IANA list.
 
 ### Editions
 All four strategies available in CE/EE/Cloud. Cloud additionally surfaces trigger health stats in Platform Admin.
@@ -41,6 +42,7 @@ Entry point: `flowTriggerSideEffect`, exported from `trigger-source/flow-trigger
 - `packages/server/api/src/app/trigger/app-event-routing/` — APP_WEBHOOK routing table and entity
 - `packages/server/api/src/app/trigger/trigger-run/` — per-platform trigger health tracking and stats endpoints
 - `packages/server/api/src/app/trigger/dedupe-service.ts` — Redis-based deduplication for polling
+- `packages/server/api/src/app/trigger/trigger-calendar/` — project trigger calendar service, controller, and cron-parser occurrence helper (DST/offset/conflict computation)
 - `packages/server/api/src/app/trigger/trigger.module.ts` — module registration
 - `packages/core/shared/src/lib/automation/trigger/` — TriggerSource schema, TriggerStrategy enum, handshake and schedule options
 - `packages/web/src/app/builder/test-step/` — builder test panel, event selector, and the manual webhook test dialog
