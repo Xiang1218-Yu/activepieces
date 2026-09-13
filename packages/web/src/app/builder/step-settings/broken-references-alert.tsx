@@ -45,9 +45,6 @@ export const BrokenReferencesAlert = ({ step }: BrokenReferencesAlertProps) => {
     return null;
   }
 
-  const uniqueStepNames = Array.from(
-    new Set(brokenReferences.map((reference) => reference.stepName)),
-  );
   const description = getDescription(brokenReferences);
 
   return (
@@ -56,13 +53,13 @@ export const BrokenReferencesAlert = ({ step }: BrokenReferencesAlertProps) => {
       <AlertTitle>{t('References need attention')}</AlertTitle>
       <AlertDescription className="flex flex-col gap-2">
         <span>{description}</span>
-        <div className="flex flex-wrap gap-1">
-          {uniqueStepNames.map((stepName) => (
-            <BrokenReferenceStepButton
-              key={stepName}
+        <div className="flex flex-col gap-1">
+          {brokenReferences.map((reference, index) => (
+            <BrokenReferenceRow
+              key={`${reference.stepName}.${reference.fieldPath}.${reference.reason}.${index}`}
               flowVersion={flowVersion}
-              stepName={stepName}
-              onSelect={() => selectStepByName(stepName)}
+              reference={reference}
+              onSelect={() => selectStepByName(reference.stepName)}
             />
           ))}
         </div>
@@ -93,41 +90,37 @@ function getDescription(brokenReferences: BrokenStepReference[]): string {
   );
 }
 
-type BrokenReferenceStepButtonProps = {
+type BrokenReferenceRowProps = {
   flowVersion: FlowVersion;
-  stepName: string;
+  reference: BrokenStepReference;
   onSelect: () => void;
 };
 
-const BrokenReferenceStepButton = ({
+const BrokenReferenceRow = ({
   flowVersion,
-  stepName,
+  reference,
   onSelect,
-}: BrokenReferenceStepButtonProps) => {
+}: BrokenReferenceRowProps) => {
   const referencedStep = flowStructureUtil.getStep(
-    stepName,
+    reference.stepName,
     flowVersion.trigger,
   );
-  if (isNil(referencedStep)) {
-    return (
+  const label = isNil(referencedStep)
+    ? reference.stepName
+    : referencedStep.displayName;
+  return (
+    <div className="flex items-center gap-2 text-xs flex-wrap">
+      <span className="font-medium">{reference.fieldPath || t('Input')}</span>
+      <span className="text-muted-foreground">→</span>
       <Button
         variant="outline"
-        size="sm"
-        disabled={true}
-        className="h-7 text-xs"
+        size="xs"
+        disabled={isNil(referencedStep)}
+        onClick={onSelect}
+        className="h-6"
       >
-        {stepName}
+        {label}
       </Button>
-    );
-  }
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={onSelect}
-      className="h-7 text-xs"
-    >
-      {referencedStep.displayName}
-    </Button>
+    </div>
   );
 };

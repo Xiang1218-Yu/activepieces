@@ -2,6 +2,7 @@ import {
   ApErrorParams,
   ErrorCode,
   formatPieceError,
+  isNil,
   isString,
   tryParseFriendlyPieceError,
 } from '@activepieces/core-utils';
@@ -9,10 +10,11 @@ import {
   FlowAction,
   StepRunResponse,
   FlowTrigger,
+  SampleDataFileType,
   TriggerEventWithPayload,
   TriggerTestStrategy,
 } from '@activepieces/shared';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import deepEqual from 'deep-equal';
 import { t } from 'i18next';
 import { useFormContext } from 'react-hook-form';
@@ -20,6 +22,8 @@ import { useFormContext } from 'react-hook-form';
 import { internalErrorToast } from '@/components/ui/sonner';
 import { flowRunsApi } from '@/features/flow-runs';
 import { triggerEventsApi } from '@/features/flows';
+import { sampleDataApi } from '@/features/flows/api/sample-data-api';
+import { setSampleDataForStep } from '@/features/flows/hooks/sample-data-hooks';
 import { api } from '@/lib/api';
 import { authenticationSession } from '@/lib/authentication-session';
 import { wait } from '@/lib/dom-utils';
@@ -180,6 +184,70 @@ export const testStepHooks = {
       },
     });
   },
+  /**Re-fetch the persisted input and output sample data of one step without touching any other step.*/
+  useRefreshSampleData: ({
+    currentStep,
+  }: {
+    currentStep: (FlowAction | FlowTrigger) | undefined;
+  }) => {
+    const { builderState } = useRequiredStateToTestSteps();
+    const queryClient = useQueryClient();
+    return useMutation<unknown, Error, void>({
+      mutationFn: async () => {
+        if (isNil(currentStep)) {
+          return;
+        }
+        const projectId = authenticationSession.getProjectId()!;
+        const [output, input] = await Promise.all([
+          sampleDataApi.get({
+            flowId: builderState.flow.id,
+            flowVersionId: builderState.flowVersionId,
+            stepName: currentStep.name,
+            projectId,
+            type: SampleDataFileType.OUTPUT,
+          }),
+          currentStep.settings.sampleData?.sampleDataInputFileId
+            ? sampleDataApi.get({
+                flowId: builderState.flow.id,
+                flowVersionId: builderState.flowVersionId,
+                stepName: currentStep.name,
+                projectId,
+                type: SampleDataFileType.INPUT,
+              })
+            : Promise.resolve(undefined),
+        ]);
+        setSampleDataForStep({
+          queryClient,
+          flowVersionId: builderState.flowVersionId,
+          stepName: currentStep.name,
+          type: SampleDataFileType.OUTPUT,
+          value: output,
+        });
+        setSampleDataForStep({
+          queryClient,
+          flowVersionId: builderState.flowVersionId,
+          stepName: currentStep.name,
+          type: SampleDataFileType.INPUT,
+          value: input,
+        });
+        builderState.setSampleDataLocally({
+          stepName: currentStep.name,
+          type: 'output',
+          value: output,
+        });
+        builderState.setSampleDataLocally({
+          stepName: currentStep.name,
+          type: 'input',
+          value: input,
+        });
+        return output;
+      },
+      onError: (error) => {
+        console.error(error);
+        internalErrorToast();
+      },
+    });
+  },
   /**To reset the loading state of the mutation use a new mutation key, but to make sure sucess never gets called, use the abortSignal */
   useTestAction: ({ currentStep }: { currentStep: FlowAction }) => {
     const { flowVersionId, addActionTestListener } =
@@ -216,6 +284,7 @@ const useRequiredStateToTestSteps = () => {
     flowVersionId: state.flowVersion.id,
     addActionTestListener: state.addActionTestListener,
     updateSampleData: state.updateSampleData,
+    setSampleDataLocally: state.setSampleDataLocally,
   }));
   return { form, builderState };
 };

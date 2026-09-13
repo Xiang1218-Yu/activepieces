@@ -225,6 +225,7 @@ const TestTriggerSection = React.memo(
                 errorMessage={errorMessage ?? null}
                 lastTestDate={lastTestDate}
                 isSaving={isSaving}
+                stepName={currentStep.name}
                 pieceSchema={
                   pieceModel?.triggers[triggerName ?? '']?.outputSchema ?? null
                 }

@@ -1,14 +1,27 @@
 import { isNil, tryParseFriendlyPieceError } from '@activepieces/core-utils';
-import { AgentResult, AgentTaskStatus, FlowAction } from '@activepieces/shared';
+import {
+  AgentResult,
+  AgentTaskStatus,
+  FlowAction,
+  FlowTrigger,
+  flowStructureUtil,
+} from '@activepieces/shared';
 import { t } from 'i18next';
-import { Loader2, Play } from 'lucide-react';
+import { Loader2, Play, RefreshCw, TriangleAlert } from 'lucide-react';
 import React, { useState } from 'react';
 
 import { SmartOutputViewer } from '@/components/custom/smart-output-viewer';
 import type { OutputSchema } from '@/components/custom/smart-output-viewer/types';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
+import { useBuilderStateContext } from '../builder-hooks';
 import { DataDisplayTabs } from '../data-display/data-display-tabs';
 import { ErrorExplanationContext } from '../data-display/explanation-prompt';
 import { FriendlyErrorView } from '../data-display/friendly-error-view';
@@ -19,10 +32,12 @@ import { StepDataPanelViewToggle } from '../step-data/step-data-panel-view-toggl
 import { AgentTestStep, isRunAgent } from './agent-test-step';
 import { JsonTreeSkeleton } from './json-tree-skeleton';
 import { TestButtonTooltip } from './test-step-tooltip';
+import { testStepHooks } from './utils/test-step-hooks';
 
 type TestSampleDataViewerProps = {
   isValid: boolean;
-  currentStep?: FlowAction;
+  currentStep?: FlowAction | FlowTrigger;
+  stepName: string;
   isTesting: boolean;
   agentResult?: AgentResult;
   sampleData?: unknown;
@@ -55,6 +70,50 @@ type RetestButtonProps = {
 
 type ActiveTab = 'Input' | 'Output' | 'Logs';
 
+type SampleDataSaveFailureBannerProps = {
+  stepName: string;
+};
+
+const SampleDataSaveFailureBanner = ({
+  stepName,
+}: SampleDataSaveFailureBannerProps) => {
+  const [failedSampleDataSaves, retryFailedSampleDataSave] =
+    useBuilderStateContext((state) => [
+      state.failedSampleDataSaves,
+      state.retryFailedSampleDataSave,
+    ]);
+  const failedSaves = Object.entries(failedSampleDataSaves)
+    .filter(([, save]) => save.stepName === stepName)
+    .map(([saveKey]) => saveKey);
+  if (failedSaves.length === 0) {
+    return null;
+  }
+  return (
+    <div className="px-3 pt-2 shrink-0 flex flex-col gap-1">
+      {failedSaves.map((saveKey) => (
+        <Alert key={saveKey} variant="warning" className="py-2">
+          <TriangleAlert className="size-4" />
+          <AlertDescription className="flex items-center justify-between gap-2">
+            <span>
+              {t(
+                'Could not save this sample data. Your test result is kept locally until the save succeeds.',
+              )}
+            </span>
+            <Button
+              variant="outline"
+              size="xs"
+              className="shrink-0"
+              onClick={() => retryFailedSampleDataSave(saveKey)}
+            >
+              {t('Retry save')}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ))}
+    </div>
+  );
+};
+
 const isConsoleLogsValid = (value: unknown) => {
   if (isNil(value)) return false;
   return value !== '';
@@ -69,6 +128,7 @@ export const TestSampleDataViewer = React.memo(
       errorMessage,
       lastTestDate,
       currentStep,
+      stepName,
       children,
       isSaving,
       onRetest,
@@ -119,6 +179,7 @@ export const TestSampleDataViewer = React.memo(
       <div className="flex flex-col h-full w-full min-h-0">
         <StepDataPanelHeader status={status} lastTestDate={lastTestDate} />
         <div className="flex-1 flex flex-col w-full text-start min-h-0">
+          <SampleDataSaveFailureBanner stepName={stepName} />
           {errorMessage && !isTesting && (
             <div className="px-3 pt-2 text-xs text-muted-foreground shrink-0">
               {t('Errors are not saved on refresh')}
@@ -131,6 +192,7 @@ export const TestSampleDataViewer = React.memo(
               hasInput={hasInput}
               hasLogs={hasLogs}
               disabled={isTesting}
+              stepName={stepName}
             />
           )}
           {!isTesting && !showAgentView && children}
@@ -189,6 +251,7 @@ type TestPanelToolbarProps = {
   hasInput: boolean;
   hasLogs: boolean;
   disabled?: boolean;
+  stepName: string;
 };
 
 const TestPanelToolbar = ({
@@ -197,6 +260,7 @@ const TestPanelToolbar = ({
   hasInput,
   hasLogs,
   disabled = false,
+  stepName,
 }: TestPanelToolbarProps) => (
   <div className="flex items-center justify-between px-3 py-2 gap-2 shrink-0">
     <SegmentedTabs
@@ -207,13 +271,60 @@ const TestPanelToolbar = ({
       disabled={disabled}
     />
     <div className="flex items-center gap-1 shrink-0">
+      <RefreshSampleDataButton disabled={disabled} stepName={stepName} />
       <StepDataPanelViewToggle disabled={disabled} />
       <ClosePanelButton />
     </div>
   </div>
 );
 
-type SegmentedTabsProps = TestPanelToolbarProps;
+type RefreshSampleDataButtonProps = {
+  stepName: string;
+  disabled?: boolean;
+};
+
+const RefreshSampleDataButton = ({
+  stepName,
+  disabled = false,
+}: RefreshSampleDataButtonProps) => {
+  const [currentStep, isStepBeingTested] = useBuilderStateContext((state) => [
+    state.selectedStep
+      ? flowStructureUtil.getStep(state.selectedStep, state.flowVersion.trigger)
+      : null,
+    state.isStepBeingTested,
+  ]);
+  const { mutate, isPending } = testStepHooks.useRefreshSampleData({
+    currentStep: currentStep ?? undefined,
+  });
+  const isTesting = isStepBeingTested(stepName);
+  const refreshDisabled =
+    disabled || isPending || isTesting || isNil(currentStep);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          disabled={refreshDisabled}
+          loading={isPending}
+          onClick={() => mutate()}
+          aria-label={t('Refresh sample data')}
+        >
+          {!isPending && <RefreshCw className="size-4" />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{t('Refresh sample data')}</TooltipContent>
+    </Tooltip>
+  );
+};
+
+type SegmentedTabsProps = {
+  activeTab: ActiveTab;
+  setActiveTab: (tab: ActiveTab) => void;
+  hasInput: boolean;
+  hasLogs: boolean;
+  disabled?: boolean;
+};
 
 const SegmentedTabs = ({
   activeTab,

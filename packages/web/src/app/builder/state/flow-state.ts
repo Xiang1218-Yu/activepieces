@@ -31,12 +31,21 @@ import { PromiseQueue } from '@/lib/promise-queue';
 import { BuilderState } from '../builder-hooks';
 import { flowCanvasUtils } from '../flow-canvas/utils/flow-canvas-utils';
 
+export type FailedSampleDataSave = {
+  stepName: string;
+  type: SampleDataFileType;
+  payload: unknown;
+};
+
 export type FlowState = {
   flow: PopulatedFlow;
   flowVersion: FlowVersion;
   outputSampleData: Record<string, unknown | undefined>;
   inputSampleData: Record<string, unknown | undefined>;
   saving: boolean;
+  failedSampleDataSaves: Record<string, FailedSampleDataSave>;
+  retryFailedSampleDataSave: (saveKey: string) => void;
+  clearFailedSampleDataSave: (saveKey: string) => void;
   renameFlowClientSide: (newName: string) => void;
   moveToFolderClientSide: (folderId: string) => void;
   applyOperation: (
@@ -99,10 +108,36 @@ export const createFlowState = (
   );
   return {
     saving: false,
+    failedSampleDataSaves: {},
     outputSampleData: initialState.outputSampleData,
     inputSampleData: initialState.inputSampleData,
     flow: initialState.flow,
     flowVersion: initialState.flowVersion,
+    retryFailedSampleDataSave: (saveKey: string) => {
+      const failedSave = get().failedSampleDataSaves[saveKey];
+      if (isNil(failedSave)) {
+        return;
+      }
+      set((state) => {
+        const failedSampleDataSaves = { ...state.failedSampleDataSaves };
+        delete failedSampleDataSaves[saveKey];
+        return { failedSampleDataSaves };
+      });
+      get().applyOperation({
+        type: FlowOperationType.SAVE_SAMPLE_DATA,
+        request: {
+          stepName: failedSave.stepName,
+          payload: failedSave.payload,
+          type: failedSave.type,
+        },
+      });
+    },
+    clearFailedSampleDataSave: (saveKey: string) =>
+      set((state) => {
+        const failedSampleDataSaves = { ...state.failedSampleDataSaves };
+        delete failedSampleDataSaves[saveKey];
+        return { failedSampleDataSaves };
+      }),
     renameFlowClientSide: (newName: string) => {
       set((state) => {
         return {
@@ -185,6 +220,13 @@ export const createFlowState = (
           listener(state.flowVersion, operation);
         });
         set({ saving: true });
+        const sampleDataSaveKey =
+          operation.type === FlowOperationType.SAVE_SAMPLE_DATA
+            ? getSampleDataSaveKey({
+                stepName: operation.request.stepName,
+                type: operation.request.type,
+              })
+            : undefined;
         const updateRequest = async () => {
           try {
             const { version: serverFlowVersion } = await flowsApi.update(
@@ -204,6 +246,10 @@ export const createFlowState = (
                 type: operation.request.type,
                 value: savedSampleData,
               });
+              if (!isNil(sampleDataSaveKey)) {
+                const saveKey: string = sampleDataSaveKey;
+                get().clearFailedSampleDataSave(saveKey);
+              }
             }
             set((state) => {
               const updatedFlowVersionWithUpdatedSampleData =
@@ -224,6 +270,25 @@ export const createFlowState = (
             onSuccess?.();
           } catch (error) {
             console.error(error);
+            if (
+              operation.type === FlowOperationType.SAVE_SAMPLE_DATA &&
+              !isNil(sampleDataSaveKey)
+            ) {
+              const saveKey: string = sampleDataSaveKey;
+              const failedSave: FailedSampleDataSave = {
+                stepName: operation.request.stepName,
+                type: operation.request.type,
+                payload: operation.request.payload,
+              };
+              set((currentState) => ({
+                saving: flowUpdatesQueue.size() !== 0,
+                failedSampleDataSaves: {
+                  ...currentState.failedSampleDataSaves,
+                  [saveKey]: failedSave,
+                },
+              }));
+              return;
+            }
             set({ saving: flowUpdatesQueue.size() !== 0 });
           }
         };
@@ -286,6 +351,9 @@ export const createFlowState = (
       set((state) => ({
         flowVersion,
         run: null,
+        failedSampleDataSaves: isSameVersion
+          ? state.failedSampleDataSaves
+          : {},
         outputSampleData: isSameVersion ? state.outputSampleData : {},
         inputSampleData: isSameVersion ? state.inputSampleData : {},
         errorLogs: isSameVersion ? state.errorLogs : {},
@@ -485,6 +553,16 @@ const handleUpdatingSampleDataForStepLocallyAfterServerUpdate = ({
     },
   });
 };
+
+export function getSampleDataSaveKey({
+  stepName,
+  type,
+}: {
+  stepName: string;
+  type: SampleDataFileType;
+}): string {
+  return `${stepName}.${type}`;
+}
 
 async function loadSampleDataForVersion({
   flowVersion,
