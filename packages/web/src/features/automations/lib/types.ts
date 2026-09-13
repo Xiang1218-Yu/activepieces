@@ -32,3 +32,21 @@ export type FolderContent = {
 };
 
 export type AutomationsSort = 'default' | 'name-asc' | 'name-desc';
+
+export type MoveItemFailureReason =
+  | 'permission_denied'
+  | 'not_found'
+  | 'target_not_found'
+  | 'unknown';
+
+export type MoveItemResult = {
+  id: string;
+  type: SelectableItemType;
+  name: string;
+  errorReason?: MoveItemFailureReason;
+};
+
+export type BulkMoveResult = {
+  moved: MoveItemResult[];
+  failed: MoveItemResult[];
+};

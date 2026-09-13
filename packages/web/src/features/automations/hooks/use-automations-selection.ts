@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { SelectableItemType, SelectedItemsMap, TreeItem } from '../lib/types';
 import { getItemKey } from '../lib/utils';
@@ -95,6 +95,59 @@ export function useAutomationsSelection(treeItems: TreeItem[]) {
     setSelectedItems(new Map());
   }, []);
 
+  const removeSelectedKeys = useCallback((keys: Set<string>) => {
+    setSelectedItems((prev) => {
+      if (keys.size === 0) return prev;
+      let changed = false;
+      const next = new Map(prev);
+      for (const key of keys) {
+        if (next.delete(key)) changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
+  useEffect(() => {
+    setSelectedItems((prev) => {
+      const validLeafKeys = new Set<string>();
+      const folderChildKeys = new Map<string, string[]>();
+      for (const item of selectableItems) {
+        const key = getItemKey(item);
+        if (item.type === 'folder') {
+          folderChildKeys.set(
+            key,
+            (childrenByFolder.get(item.id) ?? []).map((child) =>
+              getItemKey(child),
+            ),
+          );
+        } else {
+          validLeafKeys.add(key);
+        }
+      }
+
+      let changed = false;
+      const next = new Map(prev);
+      for (const key of [...next.keys()]) {
+        if (folderChildKeys.has(key)) {
+          const children = folderChildKeys.get(key) ?? [];
+          const stillFullySelected =
+            children.length > 0 &&
+            children.every((childKey) => next.has(childKey));
+          if (!stillFullySelected) {
+            next.delete(key);
+            changed = true;
+          }
+          continue;
+        }
+        if (!validLeafKeys.has(key)) {
+          next.delete(key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [selectableItems, childrenByFolder]);
+
   const isItemSelected = useCallback(
     (item: TreeItem): boolean => {
       return selectedItems.has(getItemKey(item));
@@ -107,6 +160,7 @@ export function useAutomationsSelection(treeItems: TreeItem[]) {
     toggleItemSelection,
     toggleAllSelection,
     clearSelection,
+    removeSelectedKeys,
     isItemSelected,
     selectableItems,
   };

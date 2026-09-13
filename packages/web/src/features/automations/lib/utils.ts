@@ -1,9 +1,12 @@
 import { FolderDto, PopulatedFlow, Table } from '@activepieces/shared';
+import { AxiosError, HttpStatusCode, isAxiosError } from 'axios';
 
 import {
   AutomationsFilters,
   AutomationsSort,
   FolderContent,
+  MoveItemFailureReason,
+  SelectedItemsMap,
   TreeItem,
 } from './types';
 
@@ -440,3 +443,48 @@ function treeItemComparator(
 const NAME_SORT_LOCALE = 'en';
 
 export type TreeRow = { item: TreeItem; children: TreeItem[] };
+
+export type MovableItem = {
+  id: string;
+  type: 'flow' | 'table';
+  name: string;
+  folderId: string | null;
+};
+
+export function getMovableSelectedItems(
+  selectedItems: SelectedItemsMap,
+  treeItems: TreeItem[],
+): MovableItem[] {
+  const selectedLeafKeys = new Set<string>();
+  for (const [key, type] of selectedItems) {
+    if (type === 'flow' || type === 'table') {
+      selectedLeafKeys.add(key);
+    }
+  }
+
+  return treeItems
+    .filter(
+      (item) =>
+        (item.type === 'flow' || item.type === 'table') &&
+        selectedLeafKeys.has(getItemKey(item)),
+    )
+    .map((item) => ({
+      id: item.id,
+      type: item.type as 'flow' | 'table',
+      name: item.name,
+      folderId: item.folderId,
+    }));
+}
+
+export function classifyMoveError(error: unknown): MoveItemFailureReason {
+  if (isAxiosError(error)) {
+    const axiosError = error as AxiosError;
+    if (axiosError.response?.status === HttpStatusCode.Forbidden) {
+      return 'permission_denied';
+    }
+    if (axiosError.response?.status === HttpStatusCode.NotFound) {
+      return 'not_found';
+    }
+  }
+  return 'unknown';
+}

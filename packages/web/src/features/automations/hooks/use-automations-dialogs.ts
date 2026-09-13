@@ -39,8 +39,16 @@ export function useAutomationsDialogs({
   }, [itemToRename, newName, mutations]);
 
   const handleBulkMoveTo = useCallback(async () => {
-    await mutations.handleBulkMoveTo(selectedItems, moveToFolderId);
-    setMoveToDialogOpen(false);
+    if (!moveToFolderId) return;
+    const result = await mutations.handleBulkMoveTo(
+      selectedItems,
+      moveToFolderId,
+    );
+    const nothingToRetry =
+      !result || result.failed.length === 0 || result.moved.length > 0;
+    if (nothingToRetry) {
+      setMoveToDialogOpen(false);
+    }
   }, [selectedItems, moveToFolderId, mutations]);
 
   return {

@@ -26,8 +26,15 @@ import {
   hasMovableOrExportableItems,
 } from '@/features/automations/hooks/use-automations-selection';
 import { usePinnedItems } from '@/features/automations/hooks/use-pinned-items';
-import { AutomationsSort, TreeItem } from '@/features/automations/lib/types';
-import { ROOT_ITEMS_LIMIT } from '@/features/automations/lib/utils';
+import {
+  AutomationsSort,
+  BulkMoveResult,
+  TreeItem,
+} from '@/features/automations/lib/types';
+import {
+  getMovableSelectedItems,
+  ROOT_ITEMS_LIMIT,
+} from '@/features/automations/lib/utils';
 import { appConnectionsQueries } from '@/features/connections';
 import { ImportFlowDialog } from '@/features/flows/components/import-flow-dialog';
 import { projectMembersHooks } from '@/features/members';
@@ -118,9 +125,22 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
     toggleItemSelection,
     toggleAllSelection,
     clearSelection,
+    removeSelectedKeys,
     isItemSelected,
     selectableItems,
   } = useAutomationsSelection(treeItems);
+
+  const handleBulkMoveComplete = useCallback(
+    (result: BulkMoveResult) => {
+      if (result.moved.length > 0) {
+        removeSelectedKeys(
+          new Set(result.moved.map((item) => `${item.type}-${item.id}`)),
+        );
+      }
+      void invalidateAll();
+    },
+    [removeSelectedKeys, invalidateAll],
+  );
 
   const mutations = useAutomationsMutations({
     invalidateAll,
@@ -128,7 +148,9 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
     invalidateFolder,
     clearSelection,
     treeItems,
+    folderIds: folders.map((folder) => folder.id),
     unpinItem,
+    onBulkMoveComplete: handleBulkMoveComplete,
   });
 
   const dialogs = useAutomationsDialogs({ mutations, selectedItems });
@@ -415,6 +437,7 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
         onFolderChange={dialogs.setMoveToFolderId}
         onConfirm={dialogs.handleBulkMoveTo}
         isMoving={mutations.isMoving}
+        selectedCount={getMovableSelectedItems(selectedItems, treeItems).length}
       />
 
       <RenameDialog

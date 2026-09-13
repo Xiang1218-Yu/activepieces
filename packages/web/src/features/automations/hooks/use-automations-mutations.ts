@@ -21,9 +21,22 @@ import { authenticationSession } from '@/lib/authentication-session';
 import { useNewWindow } from '@/lib/navigation-utils';
 import { NEW_FLOW_QUERY_PARAM, NEW_TABLE_QUERY_PARAM } from '@/lib/route-utils';
 
-import { SelectedItemsMap, TreeItem } from '../lib/types';
+import {
+  BulkMoveResult,
+  MoveItemFailureReason,
+  MoveItemResult,
+  SelectedItemsMap,
+  TreeItem,
+} from '../lib/types';
+import {
+  classifyMoveError,
+  getMovableSelectedItems,
+  MovableItem,
+} from '../lib/utils';
 
 import { getSelectedIdsByType } from './use-automations-selection';
+
+const TARGET_FOLDER_NOT_FOUND = 'TARGET_FOLDER_NOT_FOUND';
 
 type MutationDeps = {
   invalidateAll: () => void;
@@ -31,7 +44,9 @@ type MutationDeps = {
   invalidateFolder: (folderId: string) => void;
   clearSelection: () => void;
   treeItems: TreeItem[];
+  folderIds: string[];
   unpinItem?: (itemId: string) => void;
+  onBulkMoveComplete?: (result: BulkMoveResult) => void;
 };
 
 export function useAutomationsMutations(deps: MutationDeps) {
@@ -118,40 +133,89 @@ export function useAutomationsMutations(deps: MutationDeps) {
     onError: () => toast.error(t('Failed to delete items')),
   });
 
-  const { mutateAsync: bulkMoveTo, isPending: isBulkMoving } = useMutation({
-    mutationFn: async ({
-      selectedItems,
-      targetFolderId,
-    }: {
-      selectedItems: SelectedItemsMap;
-      targetFolderId: string;
-    }) => {
-      const { flowIds, tableIds } = getSelectedIdsByType(selectedItems);
-      const folderId =
-        isNil(targetFolderId) || targetFolderId === UncategorizedFolderId
-          ? null
-          : targetFolderId;
-      await Promise.all([
-        ...flowIds.map((id) =>
-          flowsApi.update(id, {
-            type: FlowOperationType.CHANGE_FOLDER,
-            request: { folderId },
-          }),
+  const { mutateAsync: bulkMoveTo, isPending: isBulkMoving } = useMutation<
+    BulkMoveResult,
+    Error,
+    { selectedItems: SelectedItemsMap; targetFolderId: string }
+  >({
+    mutationFn: async ({ selectedItems, targetFolderId }) => {
+      const items = getMovableSelectedItems(selectedItems, deps.treeItems);
+      const isUncategorized =
+        isNil(targetFolderId) || targetFolderId === UncategorizedFolderId;
+      const targetExists =
+        isUncategorized || deps.folderIds.includes(targetFolderId);
+
+      if (!targetExists) {
+        return {
+          moved: [],
+          failed: items.map((item) => ({
+            id: item.id,
+            type: item.type,
+            name: item.name,
+            errorReason: 'target_not_found' as const,
+          })),
+        };
+      }
+
+      const resolvedFolderId = isUncategorized ? null : targetFolderId;
+
+      const results = await Promise.all(
+        items.map((item) =>
+          moveSingleItem({ item, folderId: resolvedFolderId }),
         ),
-        ...tableIds.map((id) => tablesApi.update(id, { folderId })),
-      ]);
+      );
+
+      return results.reduce<BulkMoveResult>(
+        (acc, result) => {
+          if (result.errorReason) {
+            acc.failed.push(result);
+          } else {
+            acc.moved.push(result);
+          }
+          return acc;
+        },
+        { moved: [], failed: [] },
+      );
     },
-    onSuccess: (_data, { selectedItems, targetFolderId }) => {
+    onSuccess: ({ moved, failed }, { targetFolderId }) => {
       if (targetFolderId && targetFolderId !== UncategorizedFolderId) {
-        for (const [id] of selectedItems) {
-          deps.unpinItem?.(id);
+        for (const item of moved) {
+          deps.unpinItem?.(item.id);
         }
       }
-      deps.clearSelection();
-      deps.invalidateAll();
-      toast.success(t('Items moved successfully'));
+
+      const itemFailures = failed.filter(
+        (failure) => failure.errorReason !== 'target_not_found',
+      );
+      for (const failure of itemFailures) {
+        toast.error(t(getFailureToastTitle(failure.errorReason)), {
+          description: `${failure.type === 'flow' ? t('Flow') : t('Table')}: ${
+            failure.name
+          }`,
+        });
+      }
+
+      if (
+        failed.some((failure) => failure.errorReason === 'target_not_found')
+      ) {
+        toast.error(t('The destination folder no longer exists'));
+      }
+
+      if (moved.length > 0) {
+        if (failed.length === 0) {
+          toast.success(t('Items moved successfully'));
+        } else {
+          toast.success(
+            t('{movedCount} moved, {failedCount} failed', {
+              movedCount: moved.length,
+              failedCount: failed.length,
+            }),
+          );
+        }
+      }
+
+      deps.onBulkMoveComplete?.({ moved, failed });
     },
-    onError: () => toast.error(t('Failed to move items')),
   });
 
   const { mutateAsync: rename, isPending: isRenaming } = useMutation({
@@ -215,10 +279,12 @@ export function useAutomationsMutations(deps: MutationDeps) {
       item: TreeItem;
       targetFolderId: string;
     }) => {
-      const folderId =
-        isNil(targetFolderId) || targetFolderId === UncategorizedFolderId
-          ? null
-          : targetFolderId;
+      const isUncategorized =
+        isNil(targetFolderId) || targetFolderId === UncategorizedFolderId;
+      if (!isUncategorized && !deps.folderIds.includes(targetFolderId)) {
+        throw new Error(TARGET_FOLDER_NOT_FOUND);
+      }
+      const folderId = isUncategorized ? null : targetFolderId;
       if (item.type === 'flow') {
         await flowsApi.update(item.id, {
           type: FlowOperationType.CHANGE_FOLDER,
@@ -235,7 +301,13 @@ export function useAutomationsMutations(deps: MutationDeps) {
       deps.invalidateAll();
       toast.success(t('Moved successfully'));
     },
-    onError: () => toast.error(t('Failed to move item')),
+    onError: (error) => {
+      toast.error(
+        error.message === TARGET_FOLDER_NOT_FOUND
+          ? t('The destination folder no longer exists')
+          : t('Failed to move item'),
+      );
+    },
   });
 
   const { mutate: exportTable, isPending: isExportingTable } = useMutation({
@@ -323,4 +395,44 @@ function isFlowTreeItem(
   item: TreeItem,
 ): item is TreeItem & { data: PopulatedFlow } {
   return item.type === 'flow' && !isNil(item.data);
+}
+
+async function moveSingleItem({
+  item,
+  folderId,
+}: {
+  item: MovableItem;
+  folderId: string | null;
+}): Promise<MoveItemResult> {
+  try {
+    if (item.type === 'flow') {
+      await flowsApi.update(item.id, {
+        type: FlowOperationType.CHANGE_FOLDER,
+        request: { folderId },
+      });
+    } else {
+      await tablesApi.update(item.id, { folderId });
+    }
+    return { id: item.id, type: item.type, name: item.name };
+  } catch (error) {
+    return {
+      id: item.id,
+      type: item.type,
+      name: item.name,
+      errorReason: classifyMoveError(error),
+    };
+  }
+}
+
+function getFailureToastTitle(reason: MoveItemFailureReason): string {
+  switch (reason) {
+    case 'permission_denied':
+      return t('You do not have permission to move this item');
+    case 'not_found':
+      return t('This item no longer exists');
+    case 'target_not_found':
+      return t('The destination folder no longer exists');
+    case 'unknown':
+      return t('Failed to move this item');
+  }
 }

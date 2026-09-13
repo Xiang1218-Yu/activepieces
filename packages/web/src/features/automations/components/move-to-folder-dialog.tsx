@@ -28,6 +28,7 @@ type MoveToFolderDialogProps = {
   onFolderChange: (folderId: string) => void;
   onConfirm: () => void;
   isMoving: boolean;
+  selectedCount?: number;
 };
 
 export const MoveToFolderDialog = ({
@@ -38,6 +39,7 @@ export const MoveToFolderDialog = ({
   onFolderChange,
   onConfirm,
   isMoving,
+  selectedCount,
 }: MoveToFolderDialogProps) => {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -45,7 +47,12 @@ export const MoveToFolderDialog = ({
         <DialogHeader>
           <DialogTitle>{t('Move to Folder')}</DialogTitle>
           <DialogDescription>
-            {t('Choose a destination folder for the selected items.')}
+            {selectedCount
+              ? t(
+                  'Choose a destination folder for the {count} selected items.',
+                  { count: selectedCount },
+                )
+              : t('Choose a destination folder for the selected items.')}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-2">

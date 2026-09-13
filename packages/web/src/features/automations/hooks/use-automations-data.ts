@@ -7,7 +7,7 @@ import {
   UncategorizedFolderId,
 } from '@activepieces/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { useEmbedding } from '@/components/providers/embed-provider';
@@ -275,6 +275,13 @@ export function useAutomationsData({
   }, [isFiltered, hasFolderFilter, expandedFolders, treeItems]);
 
   const totalPages = Math.ceil(totalPageItems / pageSize);
+
+  useEffect(() => {
+    if (rootPage > 0 && rootPage >= totalPages) {
+      setRootPage(Math.max(0, totalPages - 1));
+    }
+  }, [rootPage, totalPages]);
+
   const isLoading =
     foldersQuery.isLoading ||
     (rootFlowsQuery.isLoading && !skipFlows) ||
