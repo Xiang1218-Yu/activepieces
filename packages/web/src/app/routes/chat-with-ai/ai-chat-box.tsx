@@ -60,6 +60,7 @@ export function AIChatBox({
   footerNote,
   placeholder,
   conversationId,
+  readOnly = false,
   onTitleUpdate,
   onConversationCreated,
 }: AIChatBoxProps) {
@@ -81,6 +82,7 @@ export function AIChatBox({
         footerNote={footerNote}
         placeholder={placeholder}
         conversationId={conversationId}
+        readOnly={readOnly}
         onTitleUpdate={onTitleUpdate}
         onConversationCreated={onConversationCreated}
       />
@@ -97,6 +99,7 @@ function ChatBoxContent({
   footerNote,
   placeholder,
   conversationId: initialConversationId,
+  readOnly = false,
   onTitleUpdate,
   onConversationCreated,
 }: AIChatBoxProps) {
@@ -174,11 +177,13 @@ function ChatBoxContent({
       files?: File[],
       options?: { messageSource?: AgentMessageSource },
     ) => {
+      // Archived conversations render read-only: never fire a send from them.
+      if (readOnly) return;
       if (!text.trim() && (!files || files.length === 0)) return;
       setHasSentMessage(true);
       await sendMessage(text.trim(), files, options);
     },
-    [sendMessage],
+    [sendMessage, readOnly],
   );
 
   const handleRetry = useCallback(() => {
@@ -360,7 +365,8 @@ function ChatBoxContent({
                   );
                 })}
 
-                {!isAwaitingResponse &&
+                {!readOnly &&
+                  !isAwaitingResponse &&
                   !wasCancelled &&
                   !hasBlockingCard &&
                   (quickReplies.length > 0 || offerRecurringAutomation) && (
@@ -439,35 +445,41 @@ function ChatBoxContent({
               </div>
             </div>
           )}
-          <ChatBottomBar
-            isStreaming={isStreaming}
-            onSend={handleSend}
-            onStop={cancelStream}
-            onInputChange={setHasInput}
-            recede={showOnboardingCard}
-            selectedModel={modelName}
-            onModelChange={setModelName}
-            lastAssistantMessage={lastAssistantMessage}
-            lastMessageId={lastMessage?.id}
-            hideModelSelector={agentId !== undefined}
-            placeholder={
-              placeholder ??
-              (showOnboardingCard
-                ? t('Or tell me the work you want gone')
-                : isEmpty
-                ? t('Ask, build, or run a task...')
-                : undefined)
-            }
-            banner={
-              showBanner && !hasBlockingCard ? (
-                <ChatCreditsAlert
-                  creditsExhausted={credits.creditsExhausted}
-                  creditsPercentUsed={credits.creditsPercentUsed}
-                  onDismiss={credits.dismissCreditsWarning}
-                />
-              ) : null
-            }
-          />
+          {readOnly ? (
+            <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-3 text-xs text-muted-foreground">
+              {t('Archived chats are read-only')}
+            </div>
+          ) : (
+            <ChatBottomBar
+              isStreaming={isStreaming}
+              onSend={handleSend}
+              onStop={cancelStream}
+              onInputChange={setHasInput}
+              recede={showOnboardingCard}
+              selectedModel={modelName}
+              onModelChange={setModelName}
+              lastAssistantMessage={lastAssistantMessage}
+              lastMessageId={lastMessage?.id}
+              hideModelSelector={agentId !== undefined}
+              placeholder={
+                placeholder ??
+                (showOnboardingCard
+                  ? t('Or tell me the work you want gone')
+                  : isEmpty
+                  ? t('Ask, build, or run a task...')
+                  : undefined)
+              }
+              banner={
+                showBanner && !hasBlockingCard ? (
+                  <ChatCreditsAlert
+                    creditsExhausted={credits.creditsExhausted}
+                    creditsPercentUsed={credits.creditsPercentUsed}
+                    onDismiss={credits.dismissCreditsWarning}
+                  />
+                ) : null
+              }
+            />
+          )}
           {footerNote !== undefined && (
             <p className="pt-[9px] text-center text-[11.5px] leading-[14px] text-muted-foreground">
               {footerNote}
@@ -516,6 +528,8 @@ type AIChatBoxProps = {
   footerNote?: string;
   placeholder?: string;
   conversationId?: string | null;
+  // Archived conversations: history stays visible, the composer is not.
+  readOnly?: boolean;
   onConversationCreated?: (conversationId: string) => void;
   onTitleUpdate?: (title: string) => void;
 };

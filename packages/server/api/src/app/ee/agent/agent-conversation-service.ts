@@ -7,12 +7,14 @@ import { transaction } from '../../core/db/transaction'
 import { buildPaginator } from '../../helper/pagination/build-paginator'
 import { paginationHelper } from '../../helper/pagination/pagination-utils'
 import { Order } from '../../helper/pagination/paginator'
+import { rejectedPromiseHandler } from '../../helper/promise-handler'
 import { agentApprovalGate } from './agent-approval-gate'
 import { AgentConversationEntity } from './agent-conversation-entity'
 import { AgentEntity } from './agent-entity'
 import { agentHelpers, EVAL_CONVERSATION_ID_PREFIX, isEvalConversationId } from './agent-helpers'
 import { agentService } from './agent-service'
 import { agentHistory } from './history/agent-history'
+import { chatHistoryService } from './history/chat-history-service'
 
 async function projectStillHoldingAgent({ agentId, authorisedProjectId, entityManager }: { agentId: string, authorisedProjectId: string, entityManager: EntityManager }): Promise<string> {
     const locked = await entityManager.getRepository(AgentEntity)
@@ -53,6 +55,7 @@ export const agentConversationService = (log: FastifyBaseLogger) => ({
             messages: [],
         }))
         log.info({ conversation: { id: conversation.id }, platform: { id: platformId }, user: { id: userId } }, '[agentConversationService] Conversation created')
+        rejectedPromiseHandler(chatHistoryService(log).upsertForConversation({ conversationId: conversation.id }), log)
         return conversation
     },
 
@@ -122,8 +125,18 @@ export const agentConversationService = (log: FastifyBaseLogger) => ({
 
         if (Object.keys(updates).length > 0) {
             await agentHelpers.conversationRepo().update(conversation.id, updates)
+            rejectedPromiseHandler(chatHistoryService(log).upsertForConversation({ conversationId: conversation.id }), log)
         }
         return { ...conversation, ...updates }
+    },
+
+    async setConversationArchived({ id, platformId, userId, archived }: SetConversationArchivedParams): Promise<AgentConversation> {
+        const conversation = await this.getConversationOrThrow({ id, platformId, userId })
+        const archivedAt = archived ? new Date().toISOString() : null
+        await agentHelpers.conversationRepo().update(conversation.id, { archivedAt })
+        await chatHistoryService(log).syncArchived({ conversationId: conversation.id, archived })
+        log.info({ conversation: { id }, archived }, '[agentConversationService] Conversation archive state changed')
+        return { ...conversation, archivedAt }
     },
 
     async deleteConversation({ id, platformId, userId }: ConversationIdentifier): Promise<void> {
@@ -135,6 +148,9 @@ export const agentConversationService = (log: FastifyBaseLogger) => ({
             })
         }
         await agentHelpers.conversationRepo().delete(conversation.id)
+        // The index row cascades with the conversation FK; delete explicitly so the
+        // row is gone even where foreign keys are not enforced.
+        rejectedPromiseHandler(chatHistoryService(log).removeForConversation({ conversationId: conversation.id }), log)
         log.info({ conversation: { id }, platform: { id: platformId }, user: { id: userId } }, '[agentConversationService] Conversation deleted')
     },
 
@@ -225,6 +241,10 @@ type ConversationIdentifier = {
 
 type UpdateConversationParams = ConversationIdentifier & {
     request: UpdateAgentConversationRequest
+}
+
+type SetConversationArchivedParams = ConversationIdentifier & {
+    archived: boolean
 }
 
 type SetMessageFeedbackParams = ConversationIdentifier & {

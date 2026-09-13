@@ -32,6 +32,14 @@ const ChatWithAIPage = lazyWithRetry(
   'chat-with-ai',
 );
 
+const ChatHistoryPage = lazyWithRetry(
+  () =>
+    import('@/app/routes/chat-history').then((m) => ({
+      default: m.ChatHistoryPage,
+    })),
+  'chat-history',
+);
+
 function chatElement() {
   return (
     <AllowOnlyLoggedInUserOnlyGuard>
@@ -47,9 +55,25 @@ function chatElement() {
 }
 
 const chatRoutes = [
+  // Static segments rank above '/chat/:conversationId', so this stays reachable.
+  { path: '/chat/history', element: chatHistoryElement() },
   { path: '/chat', element: chatElement() },
   { path: '/chat/:conversationId', element: chatElement() },
 ];
+
+function chatHistoryElement() {
+  return (
+    <AllowOnlyLoggedInUserOnlyGuard>
+      <ProjectDashboardLayout>
+        <PageTitle title="Chat history">
+          <Suspense fallback={<RouteLoadingBar />}>
+            <ChatHistoryPage />
+          </Suspense>
+        </PageTitle>
+      </ProjectDashboardLayout>
+    </AllowOnlyLoggedInUserOnlyGuard>
+  );
+}
 
 const AgentsPage = lazyWithRetry(
   () => import('@/app/routes/agents').then((m) => ({ default: m.AgentsPage })),

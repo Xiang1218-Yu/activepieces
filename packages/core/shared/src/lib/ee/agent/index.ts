@@ -198,6 +198,9 @@ export const AgentConversation = z.object({
     modelName: Nullable(z.string()),
     status: z.nativeEnum(AgentConversationStatus).default(AgentConversationStatus.IDLE),
     activeRunId: Nullable(z.string()),
+    // Set when the owner archives the conversation: it stays readable but the
+    // default "continue conversation" write path refuses new messages.
+    archivedAt: Nullable(z.string()),
     messages: z.array(z.record(z.string(), z.unknown())).default([]),
     uiMessages: z.array(PersistedAgentMessageSchema).nullable().default(null),
     summary: Nullable(z.string()),
@@ -364,6 +367,7 @@ export type AgentAllowedMimeType = typeof CHAT_ALLOWED_MIME_TYPES[number]
 export { CHAT_ALLOWED_MIME_TYPES }
 
 export * from './agent'
+export * from './chat-history'
 export { agentToolClassification } from './tool-classification'
 export { agentToolPhases, type AgentPhase } from './tool-phases'
 export { chatVisibility, type ResolveChatEnabledParams } from './chat-visibility'

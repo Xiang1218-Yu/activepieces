@@ -4,6 +4,7 @@ import { FastifyBaseLogger } from 'fastify'
 import { agentHelpers } from '.././agent-helpers'
 import { chatAnalyticsTelemetry } from '.././chat-analytics-sync'
 import { chatUsageTracker } from '.././chat-usage-tracker'
+import { chatHistoryService } from '.././history/chat-history-service'
 import { fileService } from '../../../file/file.service'
 import { filesService } from '../../../file/files-service'
 import { rejectedPromiseHandler } from '../../../helper/promise-handler'
@@ -89,6 +90,10 @@ export const conversationRpc = (log: FastifyBaseLogger) => ({
                 rejectedPromiseHandler(chatUsageTracker(log).track({ conversation, runId: input.runId }), log)
             }
         }
+        if (saveLanded) {
+            // Keep the history-search index in step with the persisted transcript.
+            rejectedPromiseHandler(chatHistoryService(log).upsertForConversation({ conversationId: input.conversationId }), log)
+        }
     },
 
     async updateAgentProgress(input: UpdateAgentProgressRequest): Promise<void> {
@@ -137,6 +142,7 @@ export const conversationRpc = (log: FastifyBaseLogger) => ({
             })
         }
         await updateConversationForRun({ conversationId: input.conversationId, runId: input.runId, updates: { projectId: input.projectId } })
+        rejectedPromiseHandler(chatHistoryService(log).upsertForConversation({ conversationId: input.conversationId }), log)
         log.info({ conversation: { id: input.conversationId }, project: input.projectId ? { id: input.projectId } : undefined }, '[agentRpc#updateProjectContext] Project context updated')
     },
 

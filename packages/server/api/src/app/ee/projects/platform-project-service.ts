@@ -16,6 +16,7 @@ import { platformService } from '../../platform/platform.service'
 import { ProjectEntity } from '../../project/project-entity'
 import { applyProjectsAccessFilters, projectService } from '../../project/project-service'
 import { userService } from '../../user/user-service'
+import { chatHistoryService } from '../agent/history/chat-history-service'
 import { concurrencyPoolService } from '../platform/concurrency-pool/concurrency-pool.service'
 import { platformPlanService } from '../platform/platform-plan/platform-plan.service'
 import { projectMemberService } from './project-members/project-member.service'
@@ -219,6 +220,7 @@ export const platformProjectService = (log: FastifyBaseLogger) => ({
             await projectRepo(entityManager).update({ id: personalProject.id, platformId }, { ownerId: platform.ownerId })
             await projectRepo(entityManager).softDelete({ id: personalProject.id, platformId })
         })
+        await chatHistoryService(log).tombstoneForProject({ projectId: personalProject.id })
         await scheduleHardDeleteProjectJob({ id: personalProject.id, platformId, log })
     },
 
@@ -239,6 +241,7 @@ export const platformProjectService = (log: FastifyBaseLogger) => ({
                 },
             })
         }
+        await chatHistoryService(log).tombstoneForProject({ projectId: id })
         await scheduleHardDeleteProjectJob({ id, platformId, log })
     },
 })

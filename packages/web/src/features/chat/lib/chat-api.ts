@@ -1,8 +1,12 @@
 import { SeekPage } from '@activepieces/core-utils';
 import {
+  AgentConversationStatus,
   AgentMessageSource,
+  ChatHistoryArchiveFilter,
+  ChatHistoryResourceType,
   type AgentFeedbackReason,
   type AgentHistoryMessage,
+  type ChatHistoryEntry,
   type PersistedAgentMessage,
   AgentConversation,
   ConnectionOption,
@@ -59,6 +63,50 @@ async function updateConversation(
 
 async function deleteConversation(id: string): Promise<void> {
   return api.delete<void>(`/v1/agents/conversations/${id}`);
+}
+
+async function archiveConversation(id: string): Promise<AgentConversation> {
+  return api.post<AgentConversation>(`/v1/agents/conversations/${id}/archive`);
+}
+
+async function unarchiveConversation(id: string): Promise<AgentConversation> {
+  return api.post<AgentConversation>(
+    `/v1/agents/conversations/${id}/unarchive`,
+  );
+}
+
+async function searchHistory({
+  cursor,
+  limit = 20,
+  q,
+  projectId,
+  status,
+  resourceTypes,
+  from,
+  to,
+  archived,
+}: {
+  cursor?: string;
+  limit?: number;
+  q?: string;
+  projectId?: string;
+  status?: AgentConversationStatus;
+  resourceTypes?: ChatHistoryResourceType[];
+  from?: string;
+  to?: string;
+  archived?: ChatHistoryArchiveFilter;
+}): Promise<SeekPage<ChatHistoryEntry>> {
+  return api.get<SeekPage<ChatHistoryEntry>>('/v1/agents/history/search', {
+    limit,
+    cursor,
+    q,
+    projectId,
+    status,
+    resourceTypes,
+    from,
+    to,
+    archived,
+  });
 }
 
 async function sendMessage({
@@ -172,6 +220,9 @@ export const chatApi = {
   getMessages,
   updateConversation,
   deleteConversation,
+  archiveConversation,
+  unarchiveConversation,
+  searchHistory,
   sendMessage,
   approveToolCall,
   cancelConversation,

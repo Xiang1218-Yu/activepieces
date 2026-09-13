@@ -47,6 +47,10 @@ export const AgentConversationEntity = new EntitySchema<AgentConversationWithRel
             nullable: false,
             default: AgentConversationStatus.IDLE,
         },
+        archivedAt: {
+            type: 'timestamp with time zone',
+            nullable: true,
+        },
         activeRunId: {
             type: String,
             nullable: true,

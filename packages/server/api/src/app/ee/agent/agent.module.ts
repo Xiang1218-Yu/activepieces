@@ -4,12 +4,14 @@ import { agentController } from './agent-controller'
 import { agentConversationController } from './agent-conversation-controller'
 import { agentRunController } from './agent-run-controller'
 import { chatVisibilityGuard } from './chat-visibility-helper'
+import { chatHistoryController } from './history/chat-history-controller'
 import { chatPersonalizationController } from './personalization/chat-personalization-controller'
 
 export const agentModule: FastifyPluginAsyncZod = async (app) => {
     await app.register(async (chatSurface) => {
         chatSurface.addHook('preHandler', chatVisibilityGuard)
         await chatSurface.register(agentConversationController, { prefix: '/v1/agents' })
+        await chatSurface.register(chatHistoryController, { prefix: '/v1/agents' })
         await chatSurface.register(chatPersonalizationController, { prefix: '/v1/agents/personalization' })
     })
     await app.register(async (agentSurface) => {

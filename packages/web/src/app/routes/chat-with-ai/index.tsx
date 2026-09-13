@@ -1,8 +1,15 @@
-import { SeekPage } from '@activepieces/core-utils';
+import { isNil, SeekPage } from '@activepieces/core-utils';
 import { AgentConversation } from '@activepieces/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { t } from 'i18next';
-import { Ellipsis, Pencil, Trash2 } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  Ellipsis,
+  History,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -47,6 +54,7 @@ export function ChatWithAIPage() {
   const [conversationTitle, setConversationTitle] = useState<string | null>(
     null,
   );
+  const [conversationArchived, setConversationArchived] = useState(false);
   const [titleResolved, setTitleResolved] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
@@ -76,6 +84,7 @@ export function ChatWithAIPage() {
     setResetKey((k) => k + 1);
     setPendingConversationId(null);
     setConversationTitle(null);
+    setConversationArchived(false);
     setTitleResolved(false);
     navigate('/chat', { replace: true });
   }, [navigate]);
@@ -84,6 +93,7 @@ export function ChatWithAIPage() {
     (conversationId: string) => {
       setPendingConversationId(null);
       setConversationTitle(null);
+      setConversationArchived(false);
       setTitleResolved(false);
       navigate(`/chat/${conversationId}`, {
         replace: true,
@@ -164,6 +174,50 @@ export function ChatWithAIPage() {
     handleNewChat,
   ]);
 
+  const handleToggleArchive = useCallback(async () => {
+    const convId = selectedConversationId ?? pendingConversationId;
+    if (!convId) return;
+    const next = !conversationArchived;
+    try {
+      if (next) {
+        await chatApi.archiveConversation(convId);
+      } else {
+        await chatApi.unarchiveConversation(convId);
+      }
+      setConversationArchived(next);
+      void queryClient.invalidateQueries({
+        queryKey: ['chat-conversations'],
+      });
+      void queryClient.invalidateQueries({ queryKey: ['chat-history'] });
+      toast.success(
+        next ? t('Conversation archived') : t('Conversation unarchived'),
+      );
+    } catch {
+      toast.error(t('Failed to update the conversation'));
+    }
+  }, [
+    selectedConversationId,
+    pendingConversationId,
+    conversationArchived,
+    queryClient,
+  ]);
+
+  useEffect(() => {
+    if (!selectedConversationId) return;
+    let cancelled = false;
+    chatApi
+      .getConversation(selectedConversationId)
+      .then((conv) => {
+        if (!cancelled) setConversationArchived(!isNil(conv.archivedAt));
+      })
+      .catch(() => {
+        if (!cancelled) setConversationArchived(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedConversationId]);
+
   useEffect(() => {
     if (!selectedConversationId || conversationTitle) return;
     let cancelled = false;
@@ -242,6 +296,21 @@ export function ChatWithAIPage() {
             onSelect={handleSelectConversation}
             selectedId={pendingConversationId ?? selectedConversationId}
           />
+          <TooltipProvider delayDuration={400}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 sm:h-7 sm:w-7 shrink-0"
+                  onClick={() => navigate('/chat/history')}
+                >
+                  <History size={16} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('Chat history')}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           {!effectivePinned && (
             <TooltipProvider delayDuration={400}>
               <Tooltip>
@@ -313,6 +382,16 @@ export function ChatWithAIPage() {
                       {t('Rename')}
                     </DropdownMenuItem>
                     <DropdownMenuItem
+                      onClick={() => void handleToggleArchive()}
+                    >
+                      {conversationArchived ? (
+                        <ArchiveRestore className="h-4 w-4 mr-2" />
+                      ) : (
+                        <Archive className="h-4 w-4 mr-2" />
+                      )}
+                      {conversationArchived ? t('Unarchive') : t('Archive')}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
                       onClick={() => void handleDelete()}
                     >
@@ -325,11 +404,30 @@ export function ChatWithAIPage() {
             </>
           )}
         </div>
+        {conversationArchived && activeConversationId && (
+          <div className="shrink-0 flex items-center gap-2 px-3 sm:px-6 py-2 border-b bg-muted/50">
+            <Archive className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="flex-1 text-xs text-muted-foreground">
+              {t(
+                'This chat is archived. Unarchive it to continue the conversation.',
+              )}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7"
+              onClick={() => void handleToggleArchive()}
+            >
+              {t('Unarchive')}
+            </Button>
+          </div>
+        )}
         <div className="flex-1 min-h-0">
           <AIChatBox
             key={`${selectedConversationId ?? 'new'}-${resetKey}`}
             incognito={false}
             conversationId={selectedConversationId}
+            readOnly={conversationArchived}
             onTitleUpdate={handleTitleUpdate}
             onConversationCreated={handleConversationCreated}
           />

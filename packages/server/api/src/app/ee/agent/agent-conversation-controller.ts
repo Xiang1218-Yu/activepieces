@@ -115,6 +115,15 @@ export const agentConversationController: FastifyPluginAsyncZod = async (app) =>
             userId,
         })
 
+        // Archived conversations are frozen: the default "continue conversation" action
+        // must not modify them. The owner has to explicitly unarchive first.
+        if (!isNil(conversation.archivedAt)) {
+            throw new ActivepiecesError({
+                code: ErrorCode.VALIDATION,
+                params: { message: 'This conversation is archived. Unarchive it to continue the conversation.' },
+            })
+        }
+
         await assertAgentMessageRateLimitNotExceeded({ platformId, userId, log })
 
         // Cloud rollout: count this user as a distinct chatter (no-op off cloud, deduped).
