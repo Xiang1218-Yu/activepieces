@@ -6,7 +6,8 @@ import {
 } from '@activepieces/shared';
 import { useReactFlow } from '@xyflow/react';
 import { t } from 'i18next';
-import { ArrowRight, CircleHelp, Info, Magnet } from 'lucide-react';
+import { ArrowRight, CircleHelp, Info, ListTree, Magnet } from 'lucide-react';
+import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -25,6 +26,7 @@ import { cn } from '@/lib/utils';
 
 import { EditFlowOrViewDraftButton } from '../../builder-header/flow-status/view-draft-or-edit-flow-button';
 import { useBuilderStateContext } from '../../builder-hooks';
+import { RunTimelinePanel } from '../../run-details/run-timeline/run-timeline-panel';
 import { flowCanvasUtils } from '../utils/flow-canvas-utils';
 
 import LargeWidgetWrapper from './large-widget-wrapper';
@@ -92,6 +94,9 @@ const RunInfoWidget = () => {
   const { data: logSizeLimit } = flagsHooks.useFlag<number>(
     ApFlagId.FLOW_RUN_LOG_SIZE_LIMIT_MB,
   );
+  const [isTimelineOpen, setIsTimelineOpen] = useState(
+    () => !!run?.failedStep,
+  );
   if (!run) {
     return null;
   }
@@ -100,74 +105,94 @@ const RunInfoWidget = () => {
     ignoreInternalError: false,
   });
   return (
-    <LargeWidgetWrapper
-      containerClassName={cn(
-        flowRunUtils.getStatusContainerClassName(variant),
-        'bg-background border border-border dark:bg-background dark:border-border',
-      )}
-      key={run.id + run.status}
-    >
-      <div className="flex items-center justify-between w-full flex-wrap">
-        <div className="flex items-center text-sm shrink-0">
-          <Icon className="size-5 mr-2" />
-          <span className="text-foreground dark:text-foreground font-medium">
-            {getStatusText({
-              status: run.status,
-              timeout: timeoutSeconds ?? -1,
-              memoryLimit: memoryLimit ?? -1,
-              logSizeLimit: logSizeLimit ?? -1,
-            })}
-          </span>
+    <>
+      <LargeWidgetWrapper
+        containerClassName={cn(
+          flowRunUtils.getStatusContainerClassName(variant),
+          'bg-background border border-border dark:bg-background dark:border-border',
+        )}
+        key={run.id + run.status}
+      >
+        <div className="flex items-center justify-between w-full flex-wrap">
+          <div className="flex items-center text-sm shrink-0">
+            <Icon className="size-5 mr-2" />
+            <span className="text-foreground dark:text-foreground font-medium">
+              {getStatusText({
+                status: run.status,
+                timeout: timeoutSeconds ?? -1,
+                memoryLimit: memoryLimit ?? -1,
+                logSizeLimit: logSizeLimit ?? -1,
+              })}
+            </span>
 
-          <div className="shrink-0 text-foreground dark:text-foreground">
-            {isRunTerminal && (
-              <>
-                &nbsp;-&nbsp;
-                {run.startTime && (
-                  <DateSection
-                    text={t('Started')}
-                    dateOrDuration={formatUtils.formatDateWithTime(
-                      new Date(run.startTime),
-                      true,
-                    )}
-                  />
-                )}
-                {', '}
-                {run.finishTime && run.startTime && (
-                  <DateSection
-                    text={t('Took')}
-                    dateOrDuration={formatUtils.formatDuration(
-                      new Date(run.finishTime).getTime() -
-                        new Date(run.startTime).getTime(),
-                    )}
-                  />
-                )}
-              </>
+            <div className="shrink-0 text-foreground dark:text-foreground">
+              {isRunTerminal && (
+                <>
+                  &nbsp;-&nbsp;
+                  {run.startTime && (
+                    <DateSection
+                      text={t('Started')}
+                      dateOrDuration={formatUtils.formatDateWithTime(
+                        new Date(run.startTime),
+                        true,
+                      )}
+                    />
+                  )}
+                  {', '}
+                  {run.finishTime && run.startTime && (
+                    <DateSection
+                      text={t('Took')}
+                      dateOrDuration={formatUtils.formatDuration(
+                        new Date(run.finishTime).getTime() -
+                          new Date(run.startTime).getTime(),
+                      )}
+                    />
+                  )}
+                </>
+              )}
+            </div>
+            {isRunTerminal && !isTimelineEmpty(run.timeline) && (
+              <HoverCard openDelay={200} closeDelay={100}>
+                <HoverCardTrigger className="ml-1 inline-flex cursor-default items-center">
+                  <Info className="size-4 text-muted-foreground" />
+                </HoverCardTrigger>
+                <HoverCardContent className="w-[28rem] p-3">
+                  <TimelineBar timeline={run.timeline} />
+                </HoverCardContent>
+              </HoverCard>
             )}
           </div>
-          {isRunTerminal && !isTimelineEmpty(run.timeline) && (
-            <HoverCard openDelay={200} closeDelay={100}>
-              <HoverCardTrigger className="ml-1 inline-flex cursor-default items-center">
-                <Info className="size-4 text-muted-foreground" />
-              </HoverCardTrigger>
-              <HoverCardContent className="w-[28rem] p-3">
-                <TimelineBar timeline={run.timeline} />
-              </HoverCardContent>
-            </HoverCard>
-          )}
-        </div>
 
-        <div className="flex items-center gap-2">
-          <ResumeLiveFollowButton isRunTerminal={isRunTerminal} />
-          {run.failedStep && (
-            <JumpToFailedStepButton failedStepName={run.failedStep.name} />
-          )}
-          <EditFlowOrViewDraftButton
-            onCanvas={false}
-          ></EditFlowOrViewDraftButton>
+          <div className="flex items-center gap-2">
+            <ResumeLiveFollowButton isRunTerminal={isRunTerminal} />
+            <Button
+              variant={isTimelineOpen ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setIsTimelineOpen((open) => !open)}
+              className="gap-1"
+            >
+              <ListTree className="size-4" />
+              {t('Timeline')}
+            </Button>
+            {run.failedStep && (
+              <JumpToFailedStepButton failedStepName={run.failedStep.name} />
+            )}
+            <EditFlowOrViewDraftButton
+              onCanvas={false}
+            ></EditFlowOrViewDraftButton>
+          </div>
         </div>
-      </div>
-    </LargeWidgetWrapper>
+      </LargeWidgetWrapper>
+      {/* Rendered outside the keyed banner wrapper so expansion selections and
+          loaded iterations survive live status updates; keyed by run id so a
+          different run re-initializes the failure-path expansion. */}
+      {isTimelineOpen && (
+        <RunTimelinePanel
+          key={run.id}
+          onClose={() => setIsTimelineOpen(false)}
+        />
+      )}
+    </>
   );
 };
 RunInfoWidget.displayName = 'RunInfoWidget';

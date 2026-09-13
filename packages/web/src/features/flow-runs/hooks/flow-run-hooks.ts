@@ -190,6 +190,19 @@ export const flowRunMutations = {
       },
     });
   },
+  useCancelRun: () => {
+    return useMutation<FlowRun[], Error, string>({
+      mutationFn: async (runId) => {
+        return flowRunsApi.bulkCancel({
+          projectId: authenticationSession.getProjectId()!,
+          flowRunIds: [runId],
+        });
+      },
+      onError: () => {
+        internalErrorToast();
+      },
+    });
+  },
   useBulkCancelRuns: ({ onSuccess }: { onSuccess: () => void }) => {
     return useMutation({
       mutationFn: (request: BulkCancelFlowRequestBody) =>
