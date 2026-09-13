@@ -454,6 +454,12 @@ export const flattenTimelineTree = (
       node.branches.forEach(walk);
       return;
     }
+    if (node.kind === 'iteration') {
+      // Expanding an iteration must reveal its steps — including nested loop
+      // nodes, which then expand layer by layer on their own toggle.
+      node.children.forEach(walk);
+      return;
+    }
     if (node.kind === 'loop') {
       const limit = visibleIterations[node.id] ?? defaultVisibleIterations;
       // Failing iterations beyond the paged window must stay reachable: the

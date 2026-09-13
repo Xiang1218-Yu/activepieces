@@ -107,6 +107,39 @@ describe('buildRunTimelineTree', () => {
     ]),
   };
 
+  const nestedTrigger: any = {
+    name: 'trigger',
+    displayName: 'T',
+    type: FlowTriggerType.PIECE,
+    nextAction: {
+      name: 'outer',
+      displayName: 'Outer',
+      type: FlowActionType.LOOP_ON_ITEMS,
+      firstLoopAction: {
+        name: 'inner',
+        displayName: 'Inner',
+        type: FlowActionType.LOOP_ON_ITEMS,
+        firstLoopAction: {
+          name: 'p1',
+          displayName: 'P1',
+          type: FlowActionType.PIECE,
+        },
+      },
+    },
+  };
+
+  const nestedSteps: Record<string, StepOutput> = {
+    trigger: s(StepOutputStatus.SUCCEEDED),
+    outer: loopOutput([
+      {
+        inner: loopOutput([
+          { p1: s(StepOutputStatus.SUCCEEDED) },
+          { p1: s(StepOutputStatus.FAILED, { errorMessage: 'nested' }) },
+        ]),
+      },
+    ]),
+  };
+
   it('builds router branches with matched statuses', () => {
     const tree = buildRunTimelineTree(trigger, runSteps);
     const router = tree[1];
@@ -162,14 +195,17 @@ describe('buildRunTimelineTree', () => {
     expect(stepNames).toContain('a2');
     // The failing iteration (index 1) stays visible even though the paging
     // window only covers the first iteration.
-    expect(
-      rows.some(
-        (row) =>
-          row.kind === 'iteration' &&
-          row.iterationIndex === 1 &&
-          row.errorSummary?.stepName === 'd1',
-      ),
-    ).toBe(true);
+    const failingIteration = rows.find(
+      (row) =>
+        row.kind === 'iteration' &&
+        row.iterationIndex === 1 &&
+        row.errorSummary?.stepName === 'd1',
+    );
+    expect(failingIteration).toBeDefined();
+    // The failing iteration is auto-expanded, so its child step row must be
+    // present in the flattened rows (regression: iteration children were
+    // never walked by the flattener).
+    expect(stepNames).toContain('d1');
     expect(rows.some((row) => row.kind === 'load-more-iterations')).toBe(true);
     const loadMore = rows.find(
       (row) => row.kind === 'load-more-iterations',
@@ -179,6 +215,97 @@ describe('buildRunTimelineTree', () => {
         ? loadMore.remainingCount
         : 0,
     ).toBe(1);
+  });
+
+  it('reveals iteration child step rows when the iteration is expanded', () => {
+    const tree = buildRunTimelineTree(trigger, runSteps);
+    // Collapse everything except the loop and its *healthy* first iteration,
+    // mirroring a user clicking through the tree.
+    const expanded = new Set<string>([
+      'run/loop1',
+      'run/loop1/iteration-0',
+    ]);
+    const rows = flattenTimelineTree(tree, expanded, {}, 50);
+    const stepNames = rows
+      .filter((row) => row.kind === 'step')
+      .map((row) => (row.kind === 'step' ? row.stepName : ''));
+    // The step executed inside that iteration must be a visible row.
+    expect(stepNames).toContain('d1');
+    const d1Row = rows.find(
+      (row) => row.kind === 'step' && row.stepName === 'd1',
+    );
+    if (d1Row && d1Row.kind === 'step') {
+      expect(d1Row.output?.status).toBe(StepOutputStatus.SUCCEEDED);
+      expect(d1Row.output?.duration).toBe(10);
+    }
+    // Rows from the still-collapsed router branches stay out of the list.
+    expect(stepNames).not.toContain('a1');
+    expect(stepNames).not.toContain('a2');
+
+    // Collapsing the iteration again hides the child step row.
+    const collapsedRows = flattenTimelineTree(
+      tree,
+      new Set<string>(['run/loop1']),
+      {},
+      50,
+    );
+    const collapsedNames = collapsedRows
+      .filter((row) => row.kind === 'step')
+      .map((row) => (row.kind === 'step' ? row.stepName : ''));
+    expect(collapsedNames).not.toContain('d1');
+  });
+
+  it('expands nested loops layer by layer', () => {
+    const tree = buildRunTimelineTree(nestedTrigger, nestedSteps);
+    const outer = tree[1];
+    expect(outer.kind).toBe('loop');
+    if (outer.kind !== 'loop') {
+      return;
+    }
+    const inner = outer.iterations[0].children[0];
+    expect(inner.kind).toBe('loop');
+    if (inner.kind !== 'loop') {
+      return;
+    }
+
+    // Only the outer loop + its first iteration open: the inner loop header
+    // is visible, but no p1 rows yet.
+    const outerOpen = new Set<string>([
+      'run/outer',
+      'run/outer/iteration-0',
+    ]);
+    let rows = flattenTimelineTree(tree, outerOpen, {}, 50);
+    let stepNames = rows
+      .filter((row) => row.kind === 'step')
+      .map((row) => (row.kind === 'step' ? row.stepName : ''));
+    expect(rows.some((row) => row.id === inner.id)).toBe(true);
+    expect(stepNames).not.toContain('p1');
+
+    // Expand the inner loop and its first iteration: first-round p1 shows.
+    const innerFirstIterationOpen = new Set<string>([
+      ...outerOpen,
+      inner.id,
+      `${inner.id}/iteration-0`,
+    ]);
+    rows = flattenTimelineTree(tree, innerFirstIterationOpen, {}, 50);
+    stepNames = rows
+      .filter((row) => row.kind === 'step')
+      .map((row) => (row.kind === 'step' ? row.stepName : ''));
+    expect(stepNames).toContain('p1');
+    const p1Rows = rows.filter(
+      (row) => row.kind === 'step' && row.stepName === 'p1',
+    );
+    expect(p1Rows).toHaveLength(1);
+
+    // Expanding the second (failing) inner iteration reveals its p1 row too.
+    const allOpen = new Set<string>([
+      ...innerFirstIterationOpen,
+      `${inner.id}/iteration-1`,
+    ]);
+    rows = flattenTimelineTree(tree, allOpen, {}, 50);
+    expect(
+      rows.filter((row) => row.kind === 'step' && row.stepName === 'p1'),
+    ).toHaveLength(2);
   });
 
   it('marks unexecuted steps as SKIPPED for an empty run', () => {
@@ -194,37 +321,6 @@ describe('buildRunTimelineTree', () => {
   });
 
   it('handles nested loops with full loop paths', () => {
-    const nestedTrigger: any = {
-      name: 'trigger',
-      displayName: 'T',
-      type: FlowTriggerType.PIECE,
-      nextAction: {
-        name: 'outer',
-        displayName: 'Outer',
-        type: FlowActionType.LOOP_ON_ITEMS,
-        firstLoopAction: {
-          name: 'inner',
-          displayName: 'Inner',
-          type: FlowActionType.LOOP_ON_ITEMS,
-          firstLoopAction: {
-            name: 'p1',
-            displayName: 'P1',
-            type: FlowActionType.PIECE,
-          },
-        },
-      },
-    };
-    const nestedSteps = {
-      trigger: s(StepOutputStatus.SUCCEEDED),
-      outer: loopOutput([
-        {
-          inner: loopOutput([
-            { p1: s(StepOutputStatus.SUCCEEDED) },
-            { p1: s(StepOutputStatus.FAILED, { errorMessage: 'nested' }) },
-          ]),
-        },
-      ]),
-    };
     const tree = buildRunTimelineTree(nestedTrigger, nestedSteps);
     const outer = tree[1];
     expect(outer.kind).toBe('loop');
