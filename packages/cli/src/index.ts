@@ -11,6 +11,7 @@ import { generateWorkerTokenCommand } from './lib/commands/generate-worker-token
 import { generateTranslationFileForAllPiecesCommand, generateTranslationFileForPieceCommand } from './lib/commands/generate-translation-file-for-piece';
 import { replaceProjectCommand } from './lib/commands/replace-project';
 import { benchmarkCommand } from './lib/commands/benchmark';
+import { createFlowRunsCommand } from './lib/commands/flow-runs';
 
 const pieceCommand = new Command('pieces')
   .description('Manage pieces');
@@ -44,6 +45,11 @@ const projectCommand = new Command('project')
 
 projectCommand.addCommand(replaceProjectCommand)
 
+const flowCommand = new Command('flow')
+  .description('Inspect flows and runs')
+
+flowCommand.addCommand(createFlowRunsCommand())
+
 const program = new Command();
 
 program.version('0.0.1').description('Activepieces CLI');
@@ -53,5 +59,6 @@ program.addCommand(actionCommand);
 program.addCommand(triggerCommand);
 program.addCommand(workerCommand);
 program.addCommand(projectCommand);
+program.addCommand(flowCommand);
 program.addCommand(benchmarkCommand);
 program.parse(process.argv);
