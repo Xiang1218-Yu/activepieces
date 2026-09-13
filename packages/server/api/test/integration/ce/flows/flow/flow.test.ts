@@ -550,6 +550,53 @@ describe('Flow API', () => {
             expect(responseBody.data.map((flow: PopulatedFlow) => flow.id)).toEqual([failedFlow.id])
         })
 
+        it('Unions flows matching any of multiple recent run statuses instead of intersecting them', async () => {
+            const ctx = await createTestContext(app!)
+
+            const failedFlow = await seedFlowWithVersion(ctx.project.id, 'failed flow')
+            const runningFlow = await seedFlowWithVersion(ctx.project.id, 'running flow')
+            const succeededFlow = await seedFlowWithVersion(ctx.project.id, 'succeeded flow')
+
+            await db.save('flow_run', [
+                createMockFlowRun({
+                    projectId: ctx.project.id,
+                    flowId: failedFlow.id,
+                    flowVersionId: failedFlow.versionId,
+                    status: FlowRunStatus.FAILED,
+                    environment: RunEnvironment.PRODUCTION,
+                    created: dayjs().subtract(2, 'hour').toISOString(),
+                }),
+                createMockFlowRun({
+                    projectId: ctx.project.id,
+                    flowId: runningFlow.id,
+                    flowVersionId: runningFlow.versionId,
+                    status: FlowRunStatus.RUNNING,
+                    environment: RunEnvironment.PRODUCTION,
+                    created: dayjs().subtract(5, 'minute').toISOString(),
+                }),
+                createMockFlowRun({
+                    projectId: ctx.project.id,
+                    flowId: succeededFlow.id,
+                    flowVersionId: succeededFlow.versionId,
+                    status: FlowRunStatus.SUCCEEDED,
+                    environment: RunEnvironment.PRODUCTION,
+                    created: dayjs().subtract(1, 'minute').toISOString(),
+                }),
+            ])
+
+            const response = await ctx.get('/v1/flows', {
+                projectId: ctx.project.id,
+                recentRunStatus: [RecentRunStatus.FAILED, RecentRunStatus.RUNNING],
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            const responseBody = response?.json()
+            expect(responseBody.data.map((flow: PopulatedFlow) => flow.id).sort()).toEqual([
+                failedFlow.id,
+                runningFlow.id,
+            ].sort())
+        })
+
         it('Lists flows with a run inside the given time window', async () => {
             const ctx = await createTestContext(app!)
 

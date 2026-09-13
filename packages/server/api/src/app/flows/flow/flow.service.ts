@@ -3,7 +3,7 @@ import { apDayjs, apDayjsDuration } from '@activepieces/server-utils'
 import { CreateFlowRequest, Flow, FlowCreator, FlowOperationRequest, FlowOperationStatus, FlowOperationType, flowPieceUtil, FlowRunStatus, FlowStatus, FlowTriggerType, FlowVersion, FlowVersionState, PopulatedFlow, RecentRunStatus, RunEnvironment, SharedTemplate, TelemetryEventName, TemplateStatus, TemplateType, TriggerSource, UncategorizedFolderId, UserWithMetaInformation } from '@activepieces/shared'
 import dayjs from 'dayjs'
 import { FastifyBaseLogger } from 'fastify'
-import { EntityManager, In, IsNull, Not, ObjectLiteral, SelectQueryBuilder } from 'typeorm'
+import { Brackets, EntityManager, In, IsNull, Not, ObjectLiteral, SelectQueryBuilder } from 'typeorm'
 import { transaction } from '../../core/db/transaction'
 import { distributedLock } from '../../database/redis-connections'
 import { buildPaginator } from '../../helper/pagination/build-paginator'
@@ -893,15 +893,26 @@ type RecentRunFilterInput = {
 function applyRecentRunStatusFilter<T extends ObjectLiteral>({ queryBuilder, recentRunStatus, runAfter, runBefore }: {
     queryBuilder: SelectQueryBuilder<T>
 } & RecentRunFilterInput): void {
-    recentRunStatus.forEach((selected, index) => {
-        const { sql, params } = buildRecentRunStatusCondition({
+    const fragments = recentRunStatus.map((selected, index) =>
+        buildRecentRunStatusCondition({
             selected,
             runAfter,
             runBefore,
             suffix: String(index),
-        })
-        queryBuilder.andWhere(sql, params)
-    })
+        }),
+    )
+    queryBuilder.andWhere(
+        new Brackets((outerQb) => {
+            fragments.forEach((fragment, index) => {
+                if (index === 0) {
+                    outerQb.where(fragment.sql, fragment.params)
+                }
+                else {
+                    outerQb.orWhere(fragment.sql, fragment.params)
+                }
+            })
+        }),
+    )
 }
 
 function buildRecentRunStatusCondition({ selected, runAfter, runBefore, suffix }: {
