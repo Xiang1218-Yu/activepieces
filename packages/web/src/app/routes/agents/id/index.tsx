@@ -747,6 +747,7 @@ const AgentEditScreen = ({
   });
   const updateAgent = agentsMutations.useUpdateAgent({ id: agent.id });
   const stageDraft = agentsMutations.useUpdateAgent({ id: agent.id });
+  const navigate = useNavigate();
   const [justLaunched, setJustLaunched] = useState(false);
   const [testConversationId, setTestConversationId] = useState<string | null>(
     null,
@@ -956,6 +957,17 @@ const AgentEditScreen = ({
               </AgentIdentityPopover>
             </span>
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-[38px] shrink-0 gap-2 rounded-lg px-4"
+            onClick={() =>
+              navigate(`/projects/${agent.projectId}/agents/${agent.id}/evals`)
+            }
+          >
+            <FlaskConical size={15} />
+            {t('Evals')}
+          </Button>
           <Button
             type="submit"
             loading={updateAgent.isPending}

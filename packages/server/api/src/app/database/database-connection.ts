@@ -12,6 +12,7 @@ import { UserIdentityEntity } from '../authentication/user-identity/user-identit
 import { AgentConversationEntity } from '../ee/agent/agent-conversation-entity'
 import { AgentEntity } from '../ee/agent/agent-entity'
 import { ChatRolloutUserEntity } from '../ee/agent/chat-rollout-user-entity'
+import { AgentEvalCaseEntity, AgentEvalCaseResultEntity, AgentEvalRunEntity, AgentEvalSuiteEntity } from '../ee/agent/evals/agent-eval-entities'
 import { ChatPersonalizationEntity } from '../ee/agent/personalization/chat-personalization-entity'
 import { UserMemoryEntity } from '../ee/agent/user-memory-entity'
 import { AlertEntity } from '../ee/alerts/alerts-entity'
@@ -113,6 +114,10 @@ function getEntities(): EntitySchema<unknown>[] {
         ToolSearchIndexEntity,
         AgentEntity,
         AgentConversationEntity,
+        AgentEvalSuiteEntity,
+        AgentEvalCaseEntity,
+        AgentEvalRunEntity,
+        AgentEvalCaseResultEntity,
         ChatPersonalizationEntity,
         ChatRolloutUserEntity,
         UserMemoryEntity,

@@ -28,6 +28,7 @@ import { authenticationMiddleware } from './core/security/v2/authn/authenticatio
 import { authorizationMiddleware } from './core/security/v2/authz/authorization-middleware'
 import { distributedLock, redisConnections } from './database/redis-connections'
 import { agentEvalModule } from './ee/agent/agent-eval-controller'
+import { agentEvalWorkbenchModule } from './ee/agent/evals/agent-eval-workbench.module'
 import { agentHelpers } from './ee/agent/agent-helpers'
 import { assertAgentsResolveInProject } from './ee/agent/agent-service'
 import { agentModule } from './ee/agent/agent.module'
@@ -352,6 +353,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
             await app.register(embedSubdomainModule)
             await app.register(agentModule)
             await app.register(agentEvalModule)
+            await app.register(agentEvalWorkbenchModule)
             await app.register(aiToolConfigModule)
             setPlatformOAuthService(platformOAuth2Service(app.log))
             projectHooks.set(projectEnterpriseHooks)
@@ -391,6 +393,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
             await app.register(embedSubdomainModule)
             await app.register(agentModule)
             await app.register(agentEvalModule)
+            await app.register(agentEvalWorkbenchModule)
             await app.register(aiToolConfigModule)
             setPlatformOAuthService(platformOAuth2Service(app.log))
             projectHooks.set(projectEnterpriseHooks)

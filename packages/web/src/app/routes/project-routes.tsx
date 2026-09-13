@@ -22,6 +22,18 @@ const AgentEditorPage = lazyWithRetry(
   () => import('./agents/id').then((m) => ({ default: m.AgentEditorPage })),
   'agent-editor',
 );
+const AgentEvalSuitesPage = lazyWithRetry(
+  () => import('./agents/id/evals'),
+  'agent-evals',
+);
+const AgentEvalSuitePage = lazyWithRetry(
+  () => import('./agents/id/evals/suite'),
+  'agent-eval-suite',
+);
+const AgentEvalRunPage = lazyWithRetry(
+  () => import('./agents/id/evals/run'),
+  'agent-eval-run',
+);
 const FlowBuilderPage = lazyWithRetry(
   () => import('./flows/id').then((m) => ({ default: m.FlowBuilderPage })),
   'flow-builder',
@@ -99,6 +111,54 @@ export const projectRoutes = [
             <PageTitle title="Agent">
               <SuspenseWrapper>
                 <AgentEditorPage />
+              </SuspenseWrapper>
+            </PageTitle>
+          </RoutePermissionGuard>
+        </ProjectDashboardLayout>
+      </AgentsFlagGuard>
+    ),
+  }),
+  ...ProjectRouterWrapper({
+    path: routesThatRequireProjectId.agentEvals,
+    element: (
+      <AgentsFlagGuard>
+        <ProjectDashboardLayout>
+          <RoutePermissionGuard requiredPermissions={[Permission.READ_AGENT]}>
+            <PageTitle title="Agent Evals">
+              <SuspenseWrapper>
+                <AgentEvalSuitesPage />
+              </SuspenseWrapper>
+            </PageTitle>
+          </RoutePermissionGuard>
+        </ProjectDashboardLayout>
+      </AgentsFlagGuard>
+    ),
+  }),
+  ...ProjectRouterWrapper({
+    path: routesThatRequireProjectId.agentEvalSuite,
+    element: (
+      <AgentsFlagGuard>
+        <ProjectDashboardLayout>
+          <RoutePermissionGuard requiredPermissions={[Permission.READ_AGENT]}>
+            <PageTitle title="Agent Eval Suite">
+              <SuspenseWrapper>
+                <AgentEvalSuitePage />
+              </SuspenseWrapper>
+            </PageTitle>
+          </RoutePermissionGuard>
+        </ProjectDashboardLayout>
+      </AgentsFlagGuard>
+    ),
+  }),
+  ...ProjectRouterWrapper({
+    path: routesThatRequireProjectId.agentEvalRun,
+    element: (
+      <AgentsFlagGuard>
+        <ProjectDashboardLayout>
+          <RoutePermissionGuard requiredPermissions={[Permission.READ_AGENT]}>
+            <PageTitle title="Agent Eval Run">
+              <SuspenseWrapper>
+                <AgentEvalRunPage />
               </SuspenseWrapper>
             </PageTitle>
           </RoutePermissionGuard>
