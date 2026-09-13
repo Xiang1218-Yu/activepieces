@@ -26,7 +26,13 @@ import { flowRunsApi } from '../api/flow-runs-api';
 
 export const flowRunKeys = {
   detail: (runId: string) => ['flow-run', runId] as const,
+  statusCounts: (projectId: string) =>
+    ['flow-run-count-by-status', projectId] as const,
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
 
 const STATUS_CATEGORIES = [
   {
@@ -93,7 +99,7 @@ export const flowRunQueries = {
     const projectId = authenticationSession.getProjectId()!;
 
     const { data, isLoading, dataUpdatedAt, refetch } = useQuery({
-      queryKey: ['flow-run-count-by-status', projectId],
+      queryKey: flowRunKeys.statusCounts(projectId),
       queryFn: () => {
         const range = getDefaultRange(DEFAULT_DATE_PRESET);
         return flowRunsApi.countByStatus({
@@ -159,6 +165,17 @@ export const flowRunMutations = {
               closeButton: true,
               dismissible: true,
             });
+          } else if (
+            apError.code === ErrorCode.VALIDATION ||
+            apError.code === ErrorCode.FLOW_OPERATION_IN_PROGRESS
+          ) {
+            const params = apError.params;
+            toast.error(t('Retry failed'), {
+              description:
+                isRecord(params) && typeof params.message === 'string'
+                  ? t(params.message)
+                  : undefined,
+            });
           } else if (apError.code === ErrorCode.QUOTA_EXCEEDED) {
             useManagePlanDialogStore.getState().openDialog();
           }
@@ -168,26 +185,27 @@ export const flowRunMutations = {
       },
     });
   },
-  useBulkRetryRuns: ({
-    onSuccess,
-    onPartialFailure,
-  }: {
-    onSuccess: (runs: FlowRun[]) => void;
-    onPartialFailure?: (failedRuns: Required<FlowRunWithRetryError>[]) => void;
+  useBulkRetryRuns: ({ onComplete }: {
+    onComplete: (result: {
+      succeededRuns: FlowRun[];
+      failedRuns: Required<FlowRunWithRetryError>[];
+      skippedRuns: Required<FlowRunWithRetryError>[];
+    }) => void;
   }) => {
     return useMutation({
       mutationFn: (request: BulkActionOnRunsRequestBody) =>
         flowRunsApi.bulkRetry(request),
       onSuccess: (runs) => {
-        const succeededRuns = runs.filter((r) => !r.error) as FlowRun[];
-        const failedRuns = runs.filter(
-          (r) => !!r.error,
-        ) as Required<FlowRunWithRetryError>[];
-        onSuccess(succeededRuns);
-        if (failedRuns.length > 0) {
-          onPartialFailure?.(failedRuns);
-        }
+        const succeededRuns = runs.filter((run) => !run.error);
+        const failedRuns = runs.flatMap((run) =>
+          run.error && !run.skipped ? [{ ...run, error: run.error }] : [],
+        );
+        const skippedRuns = runs.flatMap((run) =>
+          run.error && run.skipped ? [{ ...run, error: run.error }] : [],
+        );
+        onComplete({ succeededRuns, failedRuns, skippedRuns });
       },
+      onError: () => internalErrorToast(),
     });
   },
   useBulkCancelRuns: ({ onSuccess }: { onSuccess: () => void }) => {

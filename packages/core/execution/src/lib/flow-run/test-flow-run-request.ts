@@ -1,5 +1,5 @@
-import { z } from 'zod'
 import { ApId } from '@activepieces/core-utils'
+import { z } from 'zod'
 import { FlowRunStatus } from './execution/flow-execution'
 import { FlowRetryStrategy } from './flow-run'
 
@@ -28,6 +28,7 @@ export const BulkActionOnRunsRequestBody = z.object({
     createdBefore: z.string().optional(),
     failedStepName: z.string().optional(),
     failedStepMessage: z.string().optional(),
+    includeArchived: z.boolean().optional(),
 })
 
 export type BulkActionOnRunsRequestBody = z.infer<typeof BulkActionOnRunsRequestBody>

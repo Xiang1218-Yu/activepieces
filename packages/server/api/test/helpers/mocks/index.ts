@@ -398,6 +398,7 @@ export const createMockFlowRun = (flowRun?: Partial<FlowRun>): FlowRun => {
         status: flowRun?.status ?? faker.helpers.enumValue(FlowRunStatus),
         startTime: flowRun?.startTime ?? faker.date.recent().toISOString(),
         finishTime: flowRun?.finishTime ?? faker.date.recent().toISOString(),
+        archivedAt: flowRun?.archivedAt ?? null,
         environment:
             flowRun?.environment ?? faker.helpers.enumValue(RunEnvironment),
     }

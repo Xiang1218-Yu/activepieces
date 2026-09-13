@@ -105,6 +105,41 @@ describe('Retry flow run', () => {
         expect(body.flowId).toBe(flowRun.flowId)
     })
 
+    it('rejects retry for an archived run', async () => {
+        const { flowRun } = await createFailedFlowRun({
+            projectId: ctx.project.id,
+        })
+        await db.update('flow_run', flowRun.id, { archivedAt: new Date().toISOString() })
+
+        const response = await ctx.post(`/v1/flow-runs/${flowRun.id}/retry`, {
+            strategy: FlowRetryStrategy.ON_LATEST_VERSION,
+            projectId: ctx.project.id,
+        })
+
+        expect(response.statusCode).toBe(400)
+    })
+
+    it('rejects a duplicate retry while the first retry is being processed', async () => {
+        const { flowRun } = await createFailedFlowRun({
+            projectId: ctx.project.id,
+        })
+
+        const firstResponse = await ctx.post(`/v1/flow-runs/${flowRun.id}/retry`, {
+            strategy: FlowRetryStrategy.ON_LATEST_VERSION,
+            projectId: ctx.project.id,
+        })
+        const duplicateResponse = await ctx.post(`/v1/flow-runs/${flowRun.id}/retry`, {
+            strategy: FlowRetryStrategy.ON_LATEST_VERSION,
+            projectId: ctx.project.id,
+        })
+
+        expect(firstResponse.statusCode).toBe(200)
+        expect(duplicateResponse.statusCode).toBe(409)
+        expect(duplicateResponse.body.code).toBe(
+            'FLOW_OPERATION_IN_PROGRESS',
+        )
+    })
+
     it('should return 400 for invalid flow run id', async () => {
         const response = await ctx.post('/v1/flow-runs/non-existent-id/retry', {
             strategy: FlowRetryStrategy.FROM_FAILED_STEP,

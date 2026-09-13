@@ -1,9 +1,18 @@
 import { ErrorCode } from '@activepieces/core-utils';
-import { ApFlagId, FlowRunWithRetryError } from '@activepieces/shared';
+import {
+  ApFlagId,
+  FlowRetryStrategy,
+  FlowRunWithRetryError,
+  canRetryFlowRun,
+  getFlowRunRetryUnavailableReason,
+} from '@activepieces/shared';
+import { useMutation } from '@tanstack/react-query';
 import { t } from 'i18next';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Redo, RotateCw } from 'lucide-react';
+import { useRef } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { internalErrorToast } from '@/components/ui/sonner';
 import {
   Dialog,
   DialogContent,
@@ -11,6 +20,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { flowRunsApi } from '@/features/flow-runs/api/flow-runs-api';
 import { flowRunUtils } from '@/features/flow-runs/utils/flow-run-utils';
 import { flagsHooks } from '@/hooks/flags-hooks';
 import { authenticationSession } from '@/lib/authentication-session';
@@ -22,27 +32,186 @@ type FailedRetryRunsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   failedRuns: Required<FlowRunWithRetryError>[];
+  skippedRuns: Required<FlowRunWithRetryError>[];
+  onRetried: (
+    resultRuns: FlowRunWithRetryError[],
+    attemptedRunIds: string[],
+  ) => void;
 };
 
 export const FailedRetryRunsDialog = ({
   open,
   onOpenChange,
   failedRuns,
+  skippedRuns,
+  onRetried,
 }: FailedRetryRunsDialogProps) => {
   const openNewWindow = useNewWindow();
+  const projectId = authenticationSession.getProjectId()!;
   const { data: retentionDays } = flagsHooks.useFlag<number>(
     ApFlagId.EXECUTION_DATA_RETENTION_DAYS,
   );
+  const retryableRuns = [...failedRuns, ...skippedRuns];
+  const lastRequestedRunIds = useRef<string[]>([]);
+  const retryLatestMutation = useMutation<
+    FlowRunWithRetryError[],
+    Error,
+    void
+  >({
+    mutationFn: async () => {
+      const flowRunIds = retryableRuns
+        .filter((run) =>
+          canRetryFlowRun({
+            status: run.status,
+            archivedAt: run.archivedAt,
+            strategy: FlowRetryStrategy.ON_LATEST_VERSION,
+          }),
+        )
+        .map((run) => run.id);
+      lastRequestedRunIds.current = flowRunIds;
+      if (flowRunIds.length === 0) {
+        return [];
+      }
+      return flowRunsApi.bulkRetry({
+        projectId,
+        flowRunIds,
+        strategy: FlowRetryStrategy.ON_LATEST_VERSION,
+        includeArchived: true,
+      });
+    },
+    onSuccess: (runs) => {
+      onRetried(runs, lastRequestedRunIds.current);
+    },
+    onError: () => internalErrorToast(),
+  });
+  const retryFromFailedStepMutation = useMutation<
+    FlowRunWithRetryError[],
+    Error,
+    void
+  >({
+    mutationFn: async () => {
+      const flowRunIds = retryableRuns
+        .filter((run) =>
+          canRetryFlowRun({
+            status: run.status,
+            archivedAt: run.archivedAt,
+            strategy: FlowRetryStrategy.FROM_FAILED_STEP,
+          }),
+        )
+        .map((run) => run.id);
+      lastRequestedRunIds.current = flowRunIds;
+      if (flowRunIds.length === 0) {
+        return [];
+      }
+      return flowRunsApi.bulkRetry({
+        projectId,
+        flowRunIds,
+        strategy: FlowRetryStrategy.FROM_FAILED_STEP,
+        includeArchived: true,
+      });
+    },
+    onSuccess: (runs) => {
+      onRetried(runs, lastRequestedRunIds.current);
+    },
+    onError: () => internalErrorToast(),
+  });
+  const retryRunMutation = useMutation<
+    FlowRunWithRetryError[],
+    Error,
+    { flowRunId: string; strategy: FlowRetryStrategy }
+  >({
+    mutationFn: async ({
+      flowRunId,
+      strategy,
+    }: {
+      flowRunId: string
+      strategy: FlowRetryStrategy
+    }) => {
+      lastRequestedRunIds.current = [flowRunId];
+      return flowRunsApi.bulkRetry({
+        projectId,
+        flowRunIds: [flowRunId],
+        strategy,
+        includeArchived: true,
+      });
+    },
+    onSuccess: (runs) => {
+      onRetried(runs, lastRequestedRunIds.current);
+    },
+    onError: () => internalErrorToast(),
+  });
+  const latestVersionRetryableCount = retryableRuns.filter((run) =>
+    canRetryFlowRun({
+      status: run.status,
+      archivedAt: run.archivedAt,
+      strategy: FlowRetryStrategy.ON_LATEST_VERSION,
+    }),
+  ).length;
+  const failedRetryableCount = retryableRuns.filter((run) =>
+    canRetryFlowRun({
+      status: run.status,
+      archivedAt: run.archivedAt,
+      strategy: FlowRetryStrategy.FROM_FAILED_STEP,
+    }),
+  ).length;
+
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{t('Failed Retries')}</DialogTitle>
+          <DialogTitle>
+            {failedRuns.length > 0 && skippedRuns.length > 0
+              ? t('Failed and skipped retries')
+              : skippedRuns.length > 0
+                ? t('Skipped retries')
+                : t('Failed Retries')}
+          </DialogTitle>
         </DialogHeader>
+        {(latestVersionRetryableCount > 0 || failedRetryableCount > 0) && (
+          <div className="flex gap-2">
+            {latestVersionRetryableCount > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                loading={retryLatestMutation.isPending}
+                onClick={() => retryLatestMutation.mutate()}
+              >
+                <RotateCw className="size-4 mr-1" />
+                {t('Retry {{count}} on latest version', {
+                  count: latestVersionRetryableCount,
+                })}
+              </Button>
+            )}
+            {failedRetryableCount > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                loading={retryFromFailedStepMutation.isPending}
+                onClick={() => retryFromFailedStepMutation.mutate()}
+              >
+                <Redo className="size-4 mr-1" />
+                {t('Retry {{count}} from failed step', {
+                  count: failedRetryableCount,
+                })}
+              </Button>
+            )}
+          </div>
+        )}
         <ScrollArea className="max-h-[400px]">
           <ul className="flex flex-col gap-3 pr-3">
-            {failedRuns.map((run) => {
+            {retryableRuns.map((run) => {
               const { Icon, variant } = flowRunUtils.getStatusIcon(run.status);
+              const canRetryOnLatestVersion = canRetryFlowRun({
+                status: run.status,
+                archivedAt: run.archivedAt,
+                strategy: FlowRetryStrategy.ON_LATEST_VERSION,
+              });
+              const canRetryFromFailedStep = canRetryFlowRun({
+                status: run.status,
+                archivedAt: run.archivedAt,
+                strategy: FlowRetryStrategy.FROM_FAILED_STEP,
+              });
               return (
                 <li
                   key={run.id}
@@ -58,7 +227,7 @@ export const FailedRetryRunsDialog = ({
                         })}
                       />
                       <span className="truncate">
-                        {t('Previous status')}:{' '}
+                        {run.skipped ? t('Skipped') : t('Failed')} ·{' '}
                         {formatUtils.convertEnumToHumanReadable(run.status)}
                       </span>
                     </div>
@@ -71,24 +240,53 @@ export const FailedRetryRunsDialog = ({
                               failedJobRetentionDays: retentionDays,
                             },
                           )
-                        : run.error.errorMessage ?? t('Internal server error')}
+                        : getRetryErrorMessage(run.error.errorMessage)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {canRetryOnLatestVersion
+                        ? t('Available: retry on latest version')
+                        : canRetryFromFailedStep
+                          ? t('Available: retry from failed step')
+                          : getFlowRunRetryUnavailableReason({
+                              status: run.status,
+                              archivedAt: run.archivedAt,
+                              strategy:
+                                FlowRetryStrategy.ON_LATEST_VERSION,
+                            }) ?? t('No retry is available for this run')}
                     </p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() =>
-                      openNewWindow(
-                        authenticationSession.appendProjectRoutePrefix(
-                          `/runs/${run.id}`,
-                        ),
-                      )
-                    }
-                  >
-                    <ExternalLink className="size-4" />
-                    <span className="sr-only">{t('Open run')}</span>
-                  </Button>
+                  <div className="flex shrink-0">
+                    {canRetryOnLatestVersion && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        loading={retryRunMutation.isPending}
+                        onClick={() =>
+                          retryRunMutation.mutate({
+                            flowRunId: run.id,
+                            strategy: FlowRetryStrategy.ON_LATEST_VERSION,
+                          })
+                        }
+                      >
+                        <RotateCw className="size-4" />
+                        <span className="sr-only">{t('Retry')}</span>
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        openNewWindow(
+                          authenticationSession.appendProjectRoutePrefix(
+                            `/runs/${run.id}`,
+                          ),
+                        )
+                      }
+                    >
+                      <ExternalLink className="size-4" />
+                      <span className="sr-only">{t('Open run')}</span>
+                    </Button>
+                  </div>
                 </li>
               );
             })}
@@ -98,3 +296,8 @@ export const FailedRetryRunsDialog = ({
     </Dialog>
   );
 };
+
+function getRetryErrorMessage(message: string): string {
+  const translated = t(message);
+  return translated === message ? message : translated;
+}

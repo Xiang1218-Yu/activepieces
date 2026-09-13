@@ -47,6 +47,7 @@ import { formatUtils } from '@/lib/format-utils';
 type SelectedRow = {
   id: string;
   status: FlowRunStatus;
+  archivedAt?: string | null;
 };
 
 type RunsTableColumnsProps = {
@@ -91,6 +92,7 @@ export const runsTableColumns = ({
               const currentPageRows = table.getRowModel().rows.map((row) => ({
                 id: row.original.id,
                 status: row.original.status,
+                archivedAt: row.original.archivedAt,
               }));
 
               setSelectedRows((prev) => {
@@ -122,12 +124,11 @@ export const runsTableColumns = ({
                 <DropdownMenuItem
                   className="cursor-pointer"
                   onClick={() => {
-                    const currentPageRows = table
-                      .getRowModel()
-                      .rows.map((row) => ({
-                        id: row.original.id,
-                        status: row.original.status,
-                      }));
+                    const currentPageRows = table.getRowModel().rows.map((row) => ({
+                      id: row.original.id,
+                      status: row.original.status,
+                      archivedAt: row.original.archivedAt,
+                    }));
                     setSelectedRows(currentPageRows);
                     setSelectedAll(false);
                     setExcludedRows(new Set());
@@ -143,6 +144,7 @@ export const runsTableColumns = ({
                       const allRows = data.data.map((row) => ({
                         id: row.id,
                         status: row.status,
+                        archivedAt: row.archivedAt,
                       }));
                       setSelectedRows(allRows);
                       setSelectedAll(true);
@@ -188,6 +190,7 @@ export const runsTableColumns = ({
                     {
                       id: row.original.id,
                       status: row.original.status,
+                      archivedAt: row.original.archivedAt,
                     },
                   ]);
                 } else {

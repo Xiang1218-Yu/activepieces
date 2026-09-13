@@ -1,5 +1,5 @@
 import { isNil, Permission } from '@activepieces/core-utils'
-import { FlowRetryStrategy, FlowRunStatus, isFlowRunStateTerminal, McpToolDefinition, ProjectScopedMcpServer } from '@activepieces/shared'
+import { FlowRetryStrategy, canRetryFlowRun, isFlowRunStateTerminal, McpToolDefinition, ProjectScopedMcpServer } from '@activepieces/shared'
 import { FastifyBaseLogger } from 'fastify'
 import { z } from 'zod'
 import { flowService } from '../../flows/flow/flow.service'
@@ -18,7 +18,7 @@ export const apRetryRunTool = (mcp: ProjectScopedMcpServer, log: FastifyBaseLogg
     return {
         title: 'ap_retry_run',
         permission: Permission.WRITE_RUN,
-        description: 'Retry a failed flow run. FROM_FAILED_STEP resumes at failure point, ON_LATEST_VERSION re-runs entirely.',
+        description: 'Retry a failed or succeeded flow run. FROM_FAILED_STEP resumes at failure point, ON_LATEST_VERSION re-runs entirely.',
         inputSchema: retryRunInput.shape,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         execute: async (args) => {
@@ -27,12 +27,12 @@ export const apRetryRunTool = (mcp: ProjectScopedMcpServer, log: FastifyBaseLogg
 
                 const existingRun = await flowRunService(log).getOneOrThrow({ id: flowRunId, projectId: mcp.projectId })
 
-                if (!isFlowRunStateTerminal({ status: existingRun.status, ignoreInternalError: false })) {
-                    return { content: [{ type: 'text', text: `❌ Run is ${existingRun.status} — can only retry runs in a terminal state.` }] }
-                }
-
-                if (existingRun.status === FlowRunStatus.SUCCEEDED) {
-                    return { content: [{ type: 'text', text: '⚠️ Run already succeeded. Use ap_test_flow to run a new test instead.' }] }
+                if (!canRetryFlowRun({
+                    status: existingRun.status,
+                    archivedAt: existingRun.archivedAt,
+                    strategy,
+                })) {
+                    return { content: [{ type: 'text', text: `❌ Run ${existingRun.status} cannot be retried with ${strategy}.` }] }
                 }
 
                 if (strategy === FlowRetryStrategy.ON_LATEST_VERSION) {

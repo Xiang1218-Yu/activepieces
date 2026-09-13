@@ -100,6 +100,7 @@ export const flowRunController: FastifyPluginAsyncZod = async (app) => {
             createdBefore: req.body.createdBefore,
             failedStepName: req.body.failedStepName,
             failedStepMessage: req.body.failedStepMessage,
+            includeArchived: req.body.includeArchived,
         })
     })
 

@@ -88,5 +88,6 @@ export const FlowRun = z.object({
 export type FlowRun = z.infer<typeof FlowRun> & ExecutionState
 
 export type FlowRunWithRetryError = FlowRun & {
+    skipped?: boolean
     error?: { errorCode: ErrorCode, errorMessage: string }
 }

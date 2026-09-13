@@ -1,6 +1,7 @@
-
+import { isNil } from '@activepieces/core-utils'
 import { z } from 'zod'
 import { StreamStepProgress } from '../../engine/engine-operation'
+import type { FlowRetryStrategy } from '../flow-run'
 
 export enum FlowRunStatus {
     FAILED = 'FAILED',
@@ -87,7 +88,61 @@ export const FAILED_STATES = [
     FlowRunStatus.QUOTA_EXCEEDED,
     FlowRunStatus.TIMEOUT,
     FlowRunStatus.MEMORY_LIMIT_EXCEEDED,
+    FlowRunStatus.LOG_SIZE_EXCEEDED,
 ]
 export const isFailedState = (status: FlowRunStatus): boolean => {
     return FAILED_STATES.includes(status)
+}
+
+export const RETRY_ON_LATEST_VERSION_STATUSES = [...FAILED_STATES, FlowRunStatus.SUCCEEDED]
+
+export const canRetryFlowRun = ({
+    status,
+    archivedAt,
+    strategy,
+}: {
+    status: FlowRunStatus
+    archivedAt?: string | null
+    strategy: FlowRetryStrategy
+}): boolean => {
+    if (!isNil(archivedAt)) {
+        return false
+    }
+    switch (strategy) {
+        case 'FROM_FAILED_STEP':
+            return FAILED_STATES.includes(status)
+        case 'ON_LATEST_VERSION':
+            return RETRY_ON_LATEST_VERSION_STATUSES.includes(status)
+    }
+    return false
+}
+
+export const getFlowRunRetryUnavailableReason = ({
+    status,
+    archivedAt,
+    strategy,
+}: {
+    status: FlowRunStatus
+    archivedAt?: string | null
+    strategy: FlowRetryStrategy
+}): string | null => {
+    if (!isNil(archivedAt)) {
+        return 'Archived flow runs cannot be retried'
+    }
+    if (status === FlowRunStatus.RUNNING) {
+        return 'Running flow runs cannot be retried'
+    }
+    if (status === FlowRunStatus.QUEUED || status === FlowRunStatus.PAUSED) {
+        return 'Active flow runs cannot be retried'
+    }
+    if (status === FlowRunStatus.CANCELED) {
+        return 'Canceled flow runs cannot be retried'
+    }
+    if (strategy === 'FROM_FAILED_STEP' && !FAILED_STATES.includes(status)) {
+        return 'Only failed runs can be retried from failed step'
+    }
+    if (strategy === 'ON_LATEST_VERSION' && !RETRY_ON_LATEST_VERSION_STATUSES.includes(status)) {
+        return 'This flow run cannot be retried'
+    }
+    return null
 }

@@ -22,6 +22,32 @@ beforeEach(async () => {
 })
 
 describe('Bulk retry flow runs (POST /v1/flow-runs/retry)', () => {
+    it('returns skipped running, canceled, and archived runs without queueing retries', async () => {
+        const projectId = ctx.project.id
+        const { run: running } = await createFailedRun({ projectId, status: FlowRunStatus.RUNNING })
+        const { run: canceled } = await createFailedRun({ projectId, status: FlowRunStatus.CANCELED })
+        const { run: archived } = await createFailedRun({ projectId, archivedAt: new Date().toISOString() })
+        const { run: failed } = await createFailedRun({ projectId })
+
+        const response = await ctx.post('/v1/flow-runs/retry', {
+            projectId,
+            strategy: FlowRetryStrategy.ON_LATEST_VERSION,
+            includeArchived: true,
+            flowRunIds: [running.id, canceled.id, archived.id, failed.id],
+        })
+
+        expect(response.statusCode).toBe(200)
+        const results: Array<{ id: string, skipped?: boolean, error?: { errorMessage: string } }> = response.body
+        const resultsById = new Map(results.map(result => [result.id, result]))
+        expect(resultsById.get(running.id)?.skipped).toBe(true)
+        expect(resultsById.get(running.id)?.error?.errorMessage).toContain('Running')
+        expect(resultsById.get(canceled.id)?.skipped).toBe(true)
+        expect(resultsById.get(canceled.id)?.error?.errorMessage).toContain('Canceled')
+        expect(resultsById.get(archived.id)?.skipped).toBe(true)
+        expect(resultsById.get(archived.id)?.error?.errorMessage).toContain('Archived')
+        expect(resultsById.get(failed.id)?.error).toBeUndefined()
+    })
+
     it('scopes retry to the createdAfter window when Select All is used', async () => {
         const projectId = ctx.project.id
         const tenDaysAgo = new Date(Date.now() - 10 * DAY_MS).toISOString()
@@ -148,10 +174,12 @@ async function createFailedRun({
     projectId,
     createdAt,
     status = FlowRunStatus.FAILED,
+    archivedAt,
 }: {
     projectId: string
     createdAt?: string
     status?: FlowRunStatus
+    archivedAt?: string
 }): Promise<{ flow: { id: string }, flowVersion: { id: string }, run: { id: string } }> {
     const flow = createMockFlow({ projectId })
     await db.save('flow', flow)
@@ -167,6 +195,7 @@ async function createFailedRun({
         flowId: flow.id,
         flowVersionId: flowVersion.id,
         status,
+        archivedAt,
         environment: RunEnvironment.PRODUCTION,
     })
     await db.save('flow_run', run)

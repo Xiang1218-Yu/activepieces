@@ -1,11 +1,11 @@
 import { ActivepiecesError, apId, Cursor, ErrorCode, FlowId, FlowRunId, FlowVersionId, isNil, PlatformId, ProjectId, SeekPage } from '@activepieces/core-utils'
 import { apDayjs, wideEvent } from '@activepieces/server-utils'
-import { ExecuteFlowJobData, ExecutionType, ExecutioOutputFile, FileCompression, FileType, FlowRetryStrategy, FlowRun, FlowRunCountByStatus, FlowRunStatus, FlowRunWithRetryError, FlowVersion, GenericStepOutput, isFlowRunStateTerminal, JobPayload, LATEST_JOB_DATA_SCHEMA_VERSION, logSerializer, LogSliceRef, ResumeReason, RunEnvironment, RunInternalError, SampleDataFileType, StepOutput, StepOutputStatus, StepOutputType, StreamStepProgress, WorkerJobType } from '@activepieces/shared'
+import { ExecuteFlowJobData, ExecutionType, ExecutioOutputFile, FileCompression, FileType, FlowRetryStrategy, FlowRun, FlowRunCountByStatus, FlowRunStatus, FlowRunWithRetryError, FlowVersion, GenericStepOutput, canRetryFlowRun, getFlowRunRetryUnavailableReason, isFlowRunStateTerminal, JobPayload, LATEST_JOB_DATA_SCHEMA_VERSION, logSerializer, LogSliceRef, ResumeReason, RunEnvironment, RunInternalError, SampleDataFileType, StepOutput, StepOutputStatus, StepOutputType, StreamStepProgress, WorkerJobType } from '@activepieces/shared'
 import { FastifyBaseLogger } from 'fastify'
 import pLimit from 'p-limit'
 import { ArrayContains, In, IsNull, Not, Repository, SelectQueryBuilder } from 'typeorm'
 import { repoFactory } from '../../core/db/repo-factory'
-import { distributedLock } from '../../database/redis-connections'
+import { distributedLock, distributedStore } from '../../database/redis-connections'
 import { fileCompressor } from '../../file/file-compressor'
 import { fileService, getEffectiveExecutionDataRetentionDays } from '../../file/file.service'
 import { buildPaginator } from '../../helper/pagination/build-paginator'
@@ -26,6 +26,7 @@ import { flowRunSideEffects } from './flow-run-side-effects'
 import { runsMetadataQueue } from './flow-runs-queue'
 
 const CANCELLABLE_STATUSES: FlowRunStatus[] = [FlowRunStatus.PAUSED, FlowRunStatus.QUEUED]
+const RETRY_DEDUPLICATION_TTL_SECONDS = 30
 
 
 export const WEBHOOK_TIMEOUT_MS = system.getNumberOrThrow(AppSystemProp.WEBHOOK_TIMEOUT_SECONDS) * 1000
@@ -119,6 +120,8 @@ export const flowRunService = (log: FastifyBaseLogger) => ({
         })
         log.info({ flowRun: { id: flowRunId }, flow: { id: oldFlowRun.flowId }, strategy }, 'Flow run retry initiated')
 
+        assertFlowRunCanRetry({ flowRun: oldFlowRun, strategy })
+
         const project = await projectService(log).getOneOrThrow(oldFlowRun.projectId)
         const retentionDays = getEffectiveExecutionDataRetentionDays(project.executionDataRetentionDays)
         if (
@@ -140,72 +143,82 @@ export const flowRunService = (log: FastifyBaseLogger) => ({
             log,
         })
 
-        switch (strategy) {
-            case FlowRetryStrategy.FROM_FAILED_STEP: {
-                const flowVersion = await flowVersionService(log).getOneOrThrow(oldFlowRun.flowVersionId)
-                const triggerStep = oldFlowRun.steps?.[flowVersion.trigger.name]
-                const triggerFailed = triggerStep?.status === StepOutputStatus.FAILED
-                const triggerPayload = triggerFailed
-                    ? await resolveStepOutput({ step: triggerStep, flowRun: oldFlowRun, log })
-                    : undefined
+        return runWithRetryDeduplication({
+            flowRun: oldFlowRun,
+            strategy,
+            retry: async () => {
+                switch (strategy) {
+                    case FlowRetryStrategy.FROM_FAILED_STEP: {
+                        const flowVersion = await flowVersionService(log).getOneOrThrow(oldFlowRun.flowVersionId)
+                        const triggerStep = oldFlowRun.steps?.[flowVersion.trigger.name]
+                        const triggerFailed = triggerStep?.status === StepOutputStatus.FAILED
+                        const triggerPayload = triggerFailed
+                            ? await resolveStepOutput({ step: triggerStep, flowRun: oldFlowRun, log })
+                            : undefined
 
-                await flowRunRepo().update({
-                    id: oldFlowRun.id,
-                    projectId: oldFlowRun.projectId,
-                }, {
-                    status: FlowRunStatus.QUEUED,
-                    startTime: apDayjs().toISOString(),
-                    finishTime: null,
-                })
-                const updatedFlowRun = await findFlowRunOrThrow(oldFlowRun.id)
-                const platformId = await projectService(log).getPlatformId(updatedFlowRun.projectId)
-                await flowRunSideEffects(log).onRetry({ flowRun: updatedFlowRun, platformId })
-                if (triggerFailed) {
-                    return addToQueue({
-                        flowRun: updatedFlowRun,
-                        platformId,
-                        payload: triggerPayload,
-                        streamStepProgress: StreamStepProgress.NONE,
-                        executeTrigger: true,
-                        executionType: ExecutionType.BEGIN,
-                        workerHandlerId: undefined,
-                        httpRequestId: undefined,
-                    }, log)
+                        await flowRunRepo().update({
+                            id: oldFlowRun.id,
+                            projectId: oldFlowRun.projectId,
+                        }, {
+                            status: FlowRunStatus.QUEUED,
+                            startTime: apDayjs().toISOString(),
+                            finishTime: null,
+                        })
+                        const updatedFlowRun = await findFlowRunOrThrow(oldFlowRun.id)
+                        const platformId = await projectService(log).getPlatformId(updatedFlowRun.projectId)
+                        await flowRunSideEffects(log).onRetry({ flowRun: updatedFlowRun, platformId })
+                        if (triggerFailed) {
+                            return addToQueue({
+                                flowRun: updatedFlowRun,
+                                platformId,
+                                payload: triggerPayload,
+                                streamStepProgress: StreamStepProgress.NONE,
+                                executeTrigger: true,
+                                executionType: ExecutionType.BEGIN,
+                                workerHandlerId: undefined,
+                                httpRequestId: undefined,
+                            }, log)
+                        }
+                        return addToQueue({
+                            flowRun: updatedFlowRun,
+                            platformId,
+                            streamStepProgress: StreamStepProgress.NONE,
+                            executionType: ExecutionType.RESUME,
+                            resumeReason: ResumeReason.RETRY,
+                            workerHandlerId: undefined,
+                            httpRequestId: undefined,
+                        }, log)
+                    }
+                    case FlowRetryStrategy.ON_LATEST_VERSION: {
+                        const latestFlowVersion = await flowVersionService(log).getLatestLockedVersionOrThrow(
+                            oldFlowRun.flowId,
+                        )
+                        const triggerStep = oldFlowRun.steps?.[latestFlowVersion.trigger.name]
+                        const triggerFailed = triggerStep?.status === StepOutputStatus.FAILED
+                        const payload = await resolveStepOutput({ step: triggerStep, flowRun: oldFlowRun, log })
+                        return this.start({
+                            flowId: oldFlowRun.flowId,
+                            payload,
+                            platformId: await projectService(log).getPlatformId(oldFlowRun.projectId),
+                            executionType: ExecutionType.BEGIN,
+                            streamStepProgress: StreamStepProgress.NONE,
+                            workerHandlerId: undefined,
+                            httpRequestId: undefined,
+                            executeTrigger: triggerFailed,
+                            environment: oldFlowRun.environment,
+                            flowVersionId: latestFlowVersion.id,
+                            projectId: oldFlowRun.projectId,
+                            failParentOnFailure: oldFlowRun.failParentOnFailure,
+                            parentRunId: oldFlowRun.parentRunId,
+                        })
+                    }
                 }
-                return addToQueue({
-                    flowRun: updatedFlowRun,
-                    platformId,
-                    streamStepProgress: StreamStepProgress.NONE,
-                    executionType: ExecutionType.RESUME,
-                    resumeReason: ResumeReason.RETRY,
-                    workerHandlerId: undefined,
-                    httpRequestId: undefined,
-                }, log)
-            }
-            case FlowRetryStrategy.ON_LATEST_VERSION: {
-                const latestFlowVersion = await flowVersionService(log).getLatestLockedVersionOrThrow(
-                    oldFlowRun.flowId,
-                )
-                const triggerStep = oldFlowRun.steps?.[latestFlowVersion.trigger.name]
-                const triggerFailed = triggerStep?.status === StepOutputStatus.FAILED
-                const payload = await resolveStepOutput({ step: triggerStep, flowRun: oldFlowRun, log })
-                return this.start({
-                    flowId: oldFlowRun.flowId,
-                    payload,
-                    platformId: await projectService(log).getPlatformId(oldFlowRun.projectId),
-                    executionType: ExecutionType.BEGIN,
-                    streamStepProgress: StreamStepProgress.NONE,
-                    workerHandlerId: undefined,
-                    httpRequestId: undefined,
-                    executeTrigger: triggerFailed,
-                    environment: oldFlowRun.environment,
-                    flowVersionId: latestFlowVersion.id,
-                    projectId: oldFlowRun.projectId,
-                    failParentOnFailure: oldFlowRun.failParentOnFailure,
-                    parentRunId: oldFlowRun.parentRunId,
+                throw new ActivepiecesError({
+                    code: ErrorCode.VALIDATION,
+                    params: { message: 'This flow run cannot be retried' },
                 })
-            }
-        }
+            },
+        })
     },
     async cancel({ projectId, platformId, flowRunIds, excludeFlowRunIds, status, flowId, createdAfter, createdBefore }: CancelParams): Promise<void> {
         const filteredStatus = status ?? CANCELLABLE_STATUSES
@@ -246,25 +259,46 @@ export const flowRunService = (log: FastifyBaseLogger) => ({
         })
     },
     async bulkRetry(params: BulkRetryParams): Promise<FlowRunWithRetryError[]> {
-        const filteredFlowRuns = await filterFlowRunsAndApplyFilters(params)
+        const filteredFlowRuns = await filterFlowRunsAndApplyFilters({
+            ...params,
+            includeArchived: params.includeArchived ?? !isNil(params.flowRunIds),
+        })
+        const retryableFlowRuns = filteredFlowRuns.filter(flowRun => canRetryFlowRun({
+            status: flowRun.status,
+            archivedAt: flowRun.archivedAt,
+            strategy: params.strategy,
+        }))
         const limit = pLimit(10)
         const results = await Promise.allSettled(
-            filteredFlowRuns.map(flowRun =>
+            retryableFlowRuns.map(flowRun =>
                 limit(() => this.retry({ flowRunId: flowRun.id, strategy: params.strategy, projectId: params.projectId })),
             ),
         )
-        return results.map((result, i) => {
+        const resultsByFlowRunId = new Map<string, FlowRunWithRetryError>(results.map((result, index) => {
+            const flowRun = retryableFlowRuns[index]
             if (result.status === 'fulfilled') {
-                return result.value
+                return [flowRun.id, result.value]
             }
             const error = result.reason instanceof ActivepiecesError ? result.reason : undefined
-            return {
-                ...filteredFlowRuns[i],
+            return [flowRun.id, {
+                ...flowRun,
                 error: {
                     errorCode: error?.error.code ?? ErrorCode.INTERNAL_SERVER_ERROR,
-                    errorMessage: error?.message ?? 'Internal server error',
+                    errorMessage: getActivepiecesErrorMessage(error) ?? 'Internal server error',
                 },
-            }
+            }]
+        }))
+        return filteredFlowRuns.map(flowRun => resultsByFlowRunId.get(flowRun.id) ?? {
+            ...flowRun,
+            skipped: true,
+            error: {
+                errorCode: ErrorCode.VALIDATION,
+                errorMessage: getFlowRunRetryUnavailableReason({
+                    status: flowRun.status,
+                    archivedAt: flowRun.archivedAt,
+                    strategy: params.strategy,
+                }) ?? 'This flow run cannot be retried',
+            },
         })
     },
     async start({
@@ -561,9 +595,9 @@ async function filterFlowRunsAndApplyFilters(
         })
     }
 
-    if (!isNil(params.archived)) {
+    if (!params.includeArchived) {
         query = query.andWhere({
-            archivedAt: params.archived ? Not(IsNull()) : IsNull(),
+            archivedAt: IsNull(),
         })
     }
 
@@ -593,8 +627,12 @@ async function filterFlowRunsAndApplyFilters(
         })
     }
 
+    if (params.tags && params.tags.length > 0) {
+        query = query.andWhere({ tags: ArrayContains(params.tags) })
+    }
+
     if (params.failedStepName) {
-        query = query.andWhere('flow_run.failedStepName = :failedStepName', {
+        query = query.andWhere('flow_run."failedStep"->>\'name\' = :failedStepName', {
             failedStepName: params.failedStepName,
         })
     }
@@ -608,6 +646,64 @@ async function filterFlowRunsAndApplyFilters(
     return flowRuns
 }
 
+
+function assertFlowRunCanRetry({ flowRun, strategy }: { flowRun: FlowRun, strategy: FlowRetryStrategy }): void {
+    const reason = getFlowRunRetryUnavailableReason({
+        status: flowRun.status,
+        archivedAt: flowRun.archivedAt,
+        strategy,
+    })
+    if (!isNil(reason)) {
+        throw new ActivepiecesError({
+            code: ErrorCode.VALIDATION,
+            params: { message: reason },
+        })
+    }
+}
+
+function getActivepiecesErrorMessage(error: ActivepiecesError | undefined): string | undefined {
+    if (isNil(error)) {
+        return undefined
+    }
+    const params = error.error.params
+    if (isRecord(params) && typeof params.message === 'string') {
+        return params.message
+    }
+    return error.message
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && !isNil(value)
+}
+
+async function runWithRetryDeduplication({
+    flowRun,
+    strategy,
+    retry,
+}: {
+    flowRun: FlowRun
+    strategy: FlowRetryStrategy
+    retry: () => Promise<FlowRun>
+}): Promise<FlowRun> {
+    const claimed = await distributedStore.putIfAbsent(
+        `flow_run_retry_${flowRun.id}_${strategy}`,
+        { requestedAt: new Date().toISOString() },
+        RETRY_DEDUPLICATION_TTL_SECONDS,
+    )
+    if (!claimed) {
+        throw new ActivepiecesError({
+            code: ErrorCode.FLOW_OPERATION_IN_PROGRESS,
+            params: { message: 'Flow run retry is already in progress' },
+        })
+    }
+    try {
+        return await retry()
+    }
+    catch (error) {
+        await distributedStore.delete(`flow_run_retry_${flowRun.id}_${strategy}`)
+        throw error
+    }
+}
 
 export async function addToQueue(params: AddToQueueParams, log: FastifyBaseLogger): Promise<FlowRun> {
     const logsFileId = params.flowRun.logsFileId ?? apId()
@@ -908,7 +1004,7 @@ type BulkRetryParams = {
     status?: FlowRunStatus[]
     flowId?: FlowId[]
     createdAfter?: string
-    archived?: boolean
+    includeArchived?: boolean
     createdBefore?: string
     excludeFlowRunIds?: FlowRunId[]
     failedStepName?: string
@@ -921,7 +1017,6 @@ type BulkArchiveActionParams = {
     status?: FlowRunStatus[]
     flowId?: FlowId[]
     createdAfter?: string
-    archived?: boolean
     createdBefore?: string
     excludeFlowRunIds?: FlowRunId[]
     failedStepName?: string
@@ -938,11 +1033,12 @@ type FilterFlowRunsAndApplyFiltersParams = {
     projectId: ProjectId
     flowRunIds?: FlowRunId[]
     status?: FlowRunStatus[]
-    archived?: boolean
+    includeArchived?: boolean
     flowId?: FlowId[]
     createdAfter?: string
     createdBefore?: string
     excludeFlowRunIds?: FlowRunId[]
     failedStepName?: string
     failedStepMessage?: string
+    tags?: string[]
 }
