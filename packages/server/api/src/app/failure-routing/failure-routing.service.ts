@@ -1,5 +1,6 @@
 import { apId, Cursor, isNil, SeekPage, tryCatch } from '@activepieces/core-utils'
 import {
+    ApplicationEvent,
     ApplicationEventName,
     CreateFailureRoutingRuleRequestBody,
     FailureCategory,
@@ -23,7 +24,6 @@ import { domainHelper } from '../helper/domain-helper'
 import { buildPaginator } from '../helper/pagination/build-paginator'
 import { Order } from '../helper/pagination/paginator'
 import { paginationHelper } from '../helper/pagination/pagination-utils'
-import { rejectedPromiseHandler } from '../helper/promise-handler'
 import { projectService } from '../project/project-service'
 import { jobQueue, JobType } from '../workers/job-queue/job-queue'
 import {
@@ -76,8 +76,11 @@ const acquireDedupClaim = async ({ log, flowRunId, ruleId }: { log: FastifyBaseL
 }
 
 export const failureRoutingService = (log: FastifyBaseLogger) => ({
-    async handleRunFinished(event: FlowRunFinishedEvent): Promise<void> {
+    async handleRunFinished(event: ApplicationEvent): Promise<void> {
         try {
+            if (!isFlowRunFinishedEvent(event)) {
+                return
+            }
             await handleRunFinishedUnsafe({ log, event })
         }
         catch (error) {
@@ -88,7 +91,7 @@ export const failureRoutingService = (log: FastifyBaseLogger) => ({
     },
 
     async createRule({ projectId, platformId, request }: CreateRuleParams): Promise<FailureRoutingRule> {
-        const rule: FailureRoutingRuleSchema = {
+        const rule: FailureRoutingRule = {
             id: apId(),
             created: new Date().toISOString(),
             updated: new Date().toISOString(),
@@ -182,10 +185,10 @@ export const failureRoutingService = (log: FastifyBaseLogger) => ({
     },
 })
 
+const isFlowRunFinishedEvent = (event: ApplicationEvent): event is FlowRunFinishedEvent =>
+    event.action === ApplicationEventName.FLOW_RUN_FINISHED
+
 const handleRunFinishedUnsafe = async ({ log, event }: HandleRunFinishedParams): Promise<void> => {
-    if (event.action !== ApplicationEventName.FLOW_RUN_FINISHED) {
-        return
-    }
     const flowRun = event.data.flowRun
     const category = categorizeRunStatus(flowRun.status as FlowRunStatus)
     if (isNil(category) || isNil(event.projectId)) {
@@ -210,10 +213,14 @@ const handleRunFinishedUnsafe = async ({ log, event }: HandleRunFinishedParams):
         if (!matchesFailureRule(rule.filter, { flowId: flowRun.flowId, category, retryCount })) {
             continue
         }
-        rejectedPromiseHandler(
-            routeToRule({ log, rule, event, category, retryCount, displayInfo }),
-            log,
-        )
+        // Awaited within the event handler so deliveries are created by the time
+        // the handler resolves. The worker-event listener itself does not await
+        // listeners, so the flow run pipeline is never blocked; a failure on one
+        // rule must not prevent later (lower-priority) rules from being evaluated.
+        const { error } = await tryCatch(() => routeToRule({ log, rule, event, category, retryCount, displayInfo }))
+        if (!isNil(error)) {
+            log.error({ error, rule: { id: rule.id } }, '[failureRouting] rule routing failed')
+        }
         if (rule.stopOnMatch) {
             break
         }
@@ -242,7 +249,7 @@ const routeToRule = async ({ log, rule, event, category, retryCount, displayInfo
         return
     }
 
-    const delivery: FailureDeliverySchema = {
+    const delivery: FailureDelivery = {
         id: apId(),
         created: new Date().toISOString(),
         updated: new Date().toISOString(),
@@ -261,7 +268,7 @@ const routeToRule = async ({ log, rule, event, category, retryCount, displayInfo
     }
 
     try {
-        await deliveryRepo().insert(delivery)
+        await deliveryRepo().save(delivery)
     }
     catch (error) {
         // Unique violation => a delivery already exists for this run/rule (duplicate report).
@@ -473,6 +480,6 @@ type DeliverParams = {
     log: FastifyBaseLogger
     rule: FailureRoutingRuleSchema
     event: FlowRunFinishedEvent
-    delivery: FailureDeliverySchema
+    delivery: FailureDelivery
     displayInfo: DisplayInfo
 }

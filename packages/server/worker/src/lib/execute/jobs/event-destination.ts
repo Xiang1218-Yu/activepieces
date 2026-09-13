@@ -46,10 +46,12 @@ export const eventDestinationJob: JobHandler<EventDestinationJobData, FireAndFor
         // blocks the run — the delivery simply stays PENDING and remains queryable.
         if (data.failureDeliveryId && data.platformId && data.projectId) {
             const failureDeliveryId = data.failureDeliveryId
+            const platformId = data.platformId
+            const projectId = data.projectId
             const { error: reportError } = await tryCatch(() => ctx.apiClient.reportFailureDeliveryResult({
                 deliveryId: failureDeliveryId,
-                platformId: data.platformId,
-                projectId: data.projectId,
+                platformId,
+                projectId,
                 success,
                 httpStatus,
                 errorMessage,
