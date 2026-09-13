@@ -1,5 +1,5 @@
 import { ApId, Permission, SeekPage, UserId } from '@activepieces/core-utils'
-import { CountFlowsRequest, CreateFlowRequest, FlowOperationRequest, FlowOperationType, FlowStatus, flowStructureUtil, FlowTrigger, GetFlowQueryParamsRequest, GetFlowTemplateRequestQuery, GitPushOperationType, ListFlowsRequest, PopulatedFlow, PrincipalType, SERVICE_KEY_SECURITY_OPENAPI, SharedTemplate } from '@activepieces/shared'
+import { CountFlowsRequest, CreateFlowRequest, FlowOperationRequest, FlowOperationType, FlowStatus, GetFlowQueryParamsRequest, GetFlowTemplateRequestQuery, GitPushOperationType, ListFlowsRequest, PopulatedFlow, PrincipalType, SERVICE_KEY_SECURITY_OPENAPI, SharedTemplate } from '@activepieces/shared'
 import { FastifyRequest } from 'fastify'
 import { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { StatusCodes } from 'http-status-codes'
@@ -92,9 +92,10 @@ export const flowController: FastifyPluginAsyncZod = async (app) => {
             userId: actorUserId(request),
             platformId: request.principal.platform.id,
             projectId: request.projectId,
-            operation: cleanOperation(request.body),
+            operation: request.body,
             previousFlow: flow,
             ip: networkUtils.clientIp(request),
+            sanitizeImportedSampleData: true,
         })
     })
 
@@ -167,34 +168,6 @@ export const flowController: FastifyPluginAsyncZod = async (app) => {
 
 function actorUserId(request: FastifyRequest): UserId | undefined {
     return request.principal.type === PrincipalType.USER ? request.principal.id : undefined
-}
-
-function cleanOperation(operation: FlowOperationRequest): FlowOperationRequest {
-    if (operation.type === FlowOperationType.IMPORT_FLOW) {
-        const clearSampleData = {
-            sampleDataFileId: undefined,
-            sampleDataInputFileId: undefined,
-            lastTestDate: undefined,
-        }
-        const trigger = flowStructureUtil.transferStep(operation.request.trigger, (step) => ({
-            ...step,
-            settings: {
-                ...step.settings,
-                sampleData: {
-                    ...step.settings.sampleData,
-                    ...clearSampleData,
-                },
-            },
-        })) as FlowTrigger
-        return {
-            ...operation,
-            request: {
-                ...operation.request,
-                trigger,
-            },
-        }
-    }
-    return operation
 }
 
 const CreateFlowRequestOptions = {

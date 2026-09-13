@@ -37,6 +37,7 @@ import {
 import { TestStepCTAButton } from '../test-step/test-step-cta-button';
 
 import { AgentSettings } from './agent-settings';
+import { BrokenReferencesAlert } from './broken-references-alert';
 import { CodeSettings } from './code-settings';
 import EditableStepName from './editable-step-name';
 import { LoopsSettings } from './loops-settings';
@@ -180,6 +181,7 @@ const StepSettingsContainer = () => {
           GAP_SIZE_FOR_STEP_SETTINGS,
         )}
       >
+        {!readonly && <BrokenReferencesAlert step={modifiedStep} />}
         {modifiedStep.type === FlowActionType.LOOP_ON_ITEMS && (
           <LoopsSettings readonly={readonly}></LoopsSettings>
         )}

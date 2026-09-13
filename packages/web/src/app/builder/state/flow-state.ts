@@ -7,6 +7,7 @@ import {
   PopulatedFlow,
   flowOperations,
   flowStructureUtil,
+  SampleDataFileType,
   StepSettings,
   FlowTriggerType,
 } from '@activepieces/shared';
@@ -14,12 +15,17 @@ import { QueryClient } from '@tanstack/react-query';
 import { StoreApi } from 'zustand';
 
 import { RightSideBarType } from '@/app/builder/types';
-import { flowsApi, sampleDataHooks } from '@/features/flows';
+import { flowsApi } from '@/features/flows';
 import {
   PieceSelectorItem,
   PieceSelectorOperation,
   pieceSelectorUtils,
 } from '@/features/pieces';
+import {
+  fetchSampleDataForAllSteps,
+  sampleDataKeys,
+  setSampleDataForStep,
+} from '@/features/flows/hooks/sample-data-hooks';
 import { PromiseQueue } from '@/lib/promise-queue';
 
 import { BuilderState } from '../builder-hooks';
@@ -187,10 +193,17 @@ export const createFlowState = (
               true,
             );
             if (operation.type === FlowOperationType.SAVE_SAMPLE_DATA) {
-              sampleDataHooks.invalidateSampleData(
-                serverFlowVersion.id,
-                initialState.queryClient,
-              );
+              const savedSampleData =
+                operation.request.type === SampleDataFileType.OUTPUT
+                  ? get().outputSampleData[operation.request.stepName]
+                  : get().inputSampleData[operation.request.stepName];
+              setSampleDataForStep({
+                queryClient: initialState.queryClient,
+                flowVersionId: serverFlowVersion.id,
+                stepName: operation.request.stepName,
+                type: operation.request.type,
+                value: savedSampleData,
+              });
             }
             set((state) => {
               const updatedFlowVersionWithUpdatedSampleData =
@@ -211,7 +224,7 @@ export const createFlowState = (
             onSuccess?.();
           } catch (error) {
             console.error(error);
-            flowUpdatesQueue.halt();
+            set({ saving: flowUpdatesQueue.size() !== 0 });
           }
         };
 
@@ -262,14 +275,24 @@ export const createFlowState = (
       flowVersion: FlowVersion,
       shouldReselectInitialStep: boolean = true,
     ) => {
+      const previousFlowVersion = get().flowVersion;
+      const isSameVersion = previousFlowVersion.id === flowVersion.id;
       const initiallySelectedStep =
         flowCanvasUtils.determineInitiallySelectedStep(null, flowVersion);
       const isEmptyTriggerInitiallySelected =
         initiallySelectedStep === 'trigger' &&
         flowVersion.trigger.type === FlowTriggerType.EMPTY;
+      get().removeAllStepTestsListeners();
       set((state) => ({
         flowVersion,
         run: null,
+        outputSampleData: isSameVersion ? state.outputSampleData : {},
+        inputSampleData: isSameVersion ? state.inputSampleData : {},
+        errorLogs: isSameVersion ? state.errorLogs : {},
+        consoleLogs: isSameVersion ? state.consoleLogs : {},
+        revertSampleDataLocallyCallbacks: isSameVersion
+          ? state.revertSampleDataLocallyCallbacks
+          : {},
         selectedStep: shouldReselectInitialStep
           ? initiallySelectedStep
           : state.selectedStep,
@@ -282,6 +305,15 @@ export const createFlowState = (
             : RightSideBarType.NONE,
         selectedBranchIndex: null,
       }));
+      if (!isSameVersion) {
+        void loadSampleDataForVersion({
+          flowVersion,
+          projectId: get().flow.projectId,
+          queryClient: initialState.queryClient,
+          get,
+          set,
+        });
+      }
     },
     operationListeners: [],
     addOperationListener: (
@@ -453,3 +485,47 @@ const handleUpdatingSampleDataForStepLocallyAfterServerUpdate = ({
     },
   });
 };
+
+async function loadSampleDataForVersion({
+  flowVersion,
+  projectId,
+  queryClient,
+  get,
+  set,
+}: {
+  flowVersion: FlowVersion;
+  projectId: string;
+  queryClient: QueryClient;
+  get: StoreApi<BuilderState>['getState'];
+  set: StoreApi<BuilderState>['setState'];
+}): Promise<void> {
+  const [outputSampleData, inputSampleData] = await Promise.all([
+    fetchSampleDataForAllSteps({
+      flowVersion,
+      projectId,
+      type: SampleDataFileType.OUTPUT,
+    }),
+    fetchSampleDataForAllSteps({
+      flowVersion,
+      projectId,
+      type: SampleDataFileType.INPUT,
+    }),
+  ]);
+  if (get().flowVersion.id !== flowVersion.id) {
+    return;
+  }
+  queryClient.setQueryData(
+    sampleDataKeys.outputs(flowVersion.id),
+    outputSampleData,
+  );
+  queryClient.setQueryData(sampleDataKeys.inputs(flowVersion.id), inputSampleData);
+  set((state) => {
+    if (state.flowVersion.id !== flowVersion.id) {
+      return {};
+    }
+    return {
+      outputSampleData,
+      inputSampleData,
+    };
+  });
+}

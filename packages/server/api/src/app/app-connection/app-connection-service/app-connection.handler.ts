@@ -356,6 +356,7 @@ async function handleLockedVersion(flow: PopulatedFlow, userId: UserId, projectI
         platformId,
         userId,
         previousFlow: flow,
+        sanitizeImportedSampleData: true,
         operation: {
             type: FlowOperationType.IMPORT_FLOW,
             request: replaceConnectionInFlowVersion(lastPublishedVersion, appConnection, newAppConnection),
@@ -393,6 +394,7 @@ async function handleDraftVersion(flow: Flow, userId: UserId, projectId: Project
         projectId,
         platformId,
         userId,
+        sanitizeImportedSampleData: true,
         operation: {
             type: FlowOperationType.IMPORT_FLOW,
             request: replaceConnectionInFlowVersion(latestVersion, appConnection, newAppConnection),

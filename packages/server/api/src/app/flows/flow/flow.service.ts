@@ -20,11 +20,13 @@ import { triggerSourceService } from '../../trigger/trigger-source/trigger-sourc
 import { flowVersionMigrationService } from '../flow-version/flow-version-migration.service'
 import { flowVersionRepo, flowVersionService } from '../flow-version/flow-version.service'
 import { flowFolderService } from '../folder/folder.service'
+import { sampleDataService } from '../step-run/sample-data.service'
 import { flowExecutionCache } from './flow-execution-cache'
 import { flowPublishHooks, publishHooksFactory } from './flow-publish-hooks'
 import { flowPublishUtils } from './flow-publish-utils'
 import { flowSideEffects } from './flow-service-side-effects'
 import { FlowEntity } from './flow.entity'
+import { flowOperationSanitizer } from './flow-operation-sanitizer'
 import { flowRepo } from './flow.repo'
 
 
@@ -345,7 +347,12 @@ export const flowService = (log: FastifyBaseLogger) => ({
         previousFlow,
         ip,
         emitEvents = true,
+        sanitizeImportedSampleData = false,
     }: UpdateParams): Promise<PopulatedFlow> {
+        if (sanitizeImportedSampleData) {
+            operation = flowOperationSanitizer.sanitizeForExternalRequest(operation)
+        }
+
         const flowBeforeOperation = emitEvents
             ? previousFlow ?? await this.getOnePopulatedOrThrow({ id, projectId })
             : undefined
@@ -933,6 +940,7 @@ type UpdateParams = EventEmissionParams & {
     operation: FlowOperationRequest
     platformId: PlatformId
     previousFlow?: PopulatedFlow
+    sanitizeImportedSampleData?: boolean
 }
 
 type UpdatePublishedVersionIdParams = {
@@ -1015,18 +1023,6 @@ async function createNewDraftIfVersionIsPublished({
             type: FlowOperationType.IMPORT_FLOW,
             request: lockedVersion,
         }]
-        if (
-            lockedVersion.trigger.type === FlowTriggerType.PIECE &&
-            !isNil(lockedVersion.trigger.settings.sampleData)
-        ) {
-            operations.push({
-                type: FlowOperationType.UPDATE_SAMPLE_DATA_INFO,
-                request: {
-                    stepName: lockedVersion.trigger.name,
-                    sampleDataSettings: lockedVersion.trigger.settings.sampleData,
-                },
-            })
-        }
         lastVersion = await transaction(async (entityManager) => {
             let draftVersion = await flowVersionService(log).createEmptyVersion({
                 flowId,
@@ -1042,6 +1038,30 @@ async function createNewDraftIfVersionIsPublished({
                     platformId,
                     flowVersion: draftVersion,
                     userOperation: operation,
+                    entityManager,
+                })
+            }
+            const clonedSampleData = await sampleDataService(log).cloneForNewVersion({
+                projectId,
+                sourceFlowVersion: lockedVersion,
+                targetFlowVersion: draftVersion,
+            })
+            for (const [stepName, sampleDataSettings] of clonedSampleData.entries()) {
+                draftVersion = await flowVersionService(log).applyOperation({
+                    userId,
+                    projectId,
+                    platformId,
+                    flowVersion: draftVersion,
+                    userOperation: {
+                        type: FlowOperationType.UPDATE_SAMPLE_DATA_INFO,
+                        request: {
+                            stepName,
+                            sampleDataSettings: {
+                                sampleDataFileId: sampleDataSettings.sampleDataFileId,
+                                sampleDataInputFileId: sampleDataSettings.sampleDataInputFileId,
+                            },
+                        },
+                    },
                     entityManager,
                 })
             }

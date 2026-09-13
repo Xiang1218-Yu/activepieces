@@ -36,6 +36,7 @@ export const projectStateHelper = (log: FastifyBaseLogger) => ({
             platformId: project.platformId,
             userId: null,
             emitEvents: false,
+            sanitizeImportedSampleData: true,
             operation: {
                 type: FlowOperationType.IMPORT_FLOW,
                 request: {

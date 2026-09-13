@@ -51,6 +51,7 @@ export const apDuplicateFlowTool = ({ mcp, userId }: McpToolContext, log: Fastif
                         projectId: mcp.projectId,
                         userId: userId ?? null,
                         platformId: project.platformId,
+                        sanitizeImportedSampleData: true,
                         operation: {
                             type: FlowOperationType.IMPORT_FLOW,
                             request: {

@@ -14,6 +14,7 @@ const mockGetPlatformId = vi.fn().mockResolvedValue('platform-1')
 const mockRepoFindOne = vi.fn()
 const mockRepoSave = vi.fn()
 const mockRepoExists = vi.fn()
+const mockCloneForNewVersion = vi.fn(() => Promise.resolve(new Map<string, SampleDataSettings>()))
 
 vi.mock('../../../../../src/app/core/db/repo-factory', () => ({
     repoFactory: vi.fn(() => () => ({
@@ -44,6 +45,7 @@ vi.mock('../../../../../src/app/user/user-service', () => ({
 vi.mock('../../../../../src/app/flows/step-run/sample-data.service', () => ({
     sampleDataService: vi.fn(() => ({
         saveSampleDataFileIdsInStep: vi.fn(),
+        cloneForNewVersion: (...args: unknown[]) => mockCloneForNewVersion(...args),
     })),
 }))
 
@@ -138,9 +140,10 @@ describe('flowVersionService.applyOperation - USE_AS_DRAFT', () => {
         mockRepoFindOne.mockResolvedValue(null)
         mockRepoSave.mockImplementation((v: FlowVersion) => Promise.resolve(v))
         mockRepoExists.mockResolvedValue(false)
+        mockCloneForNewVersion.mockResolvedValue(new Map<string, SampleDataSettings>())
     })
 
-    it('preserves PIECE trigger sample data from the previous version', async () => {
+    it('clones sample data files from the previous version instead of carrying file ids over', async () => {
         const sampleData: SampleDataSettings = {
             sampleDataFileId: 'sd-file-1',
             sampleDataInputFileId: 'sdi-file-1',
@@ -155,6 +158,12 @@ describe('flowVersionService.applyOperation - USE_AS_DRAFT', () => {
             } as PieceTrigger,
         })
         mockRepoFindOne.mockResolvedValue(previousVersion)
+        mockCloneForNewVersion.mockResolvedValue(new Map<string, SampleDataSettings>([
+            ['trigger', {
+                sampleDataFileId: 'sd-file-cloned',
+                sampleDataInputFileId: 'sdi-file-cloned',
+            }],
+        ]))
 
         const result = await flowVersionService(mockLog).applyOperation({
             projectId: 'proj-1',
@@ -167,10 +176,16 @@ describe('flowVersionService.applyOperation - USE_AS_DRAFT', () => {
             },
         })
 
+        expect(mockCloneForNewVersion).toHaveBeenCalledWith({
+            projectId: 'proj-1',
+            sourceFlowVersion: previousVersion,
+            targetFlowVersion: currentDraft,
+        })
         expect(result.trigger.type).toBe(FlowTriggerType.PIECE)
         const settings = (result.trigger as PieceTrigger).settings
-        expect(settings.sampleData?.sampleDataFileId).toBe(sampleData.sampleDataFileId)
-        expect(settings.sampleData?.sampleDataInputFileId).toBe(sampleData.sampleDataInputFileId)
+        expect(settings.sampleData?.sampleDataFileId).toBe('sd-file-cloned')
+        expect(settings.sampleData?.sampleDataInputFileId).toBe('sdi-file-cloned')
+        expect(settings.sampleData?.sampleDataFileId).not.toBe(sampleData.sampleDataFileId)
     })
 
     it('does not set trigger sample data when previous version has no sampleData', async () => {

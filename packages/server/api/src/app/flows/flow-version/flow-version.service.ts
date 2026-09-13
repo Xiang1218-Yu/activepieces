@@ -64,18 +64,23 @@ export const flowVersionService = (log: FastifyBaseLogger) => ({
                         notes: previousVersion.notes,
                     },
                 }]
-                if (
-                    previousVersion.trigger.type === FlowTriggerType.PIECE &&
-                    !isNil(previousVersion.trigger.settings.sampleData)
-                ) {
+                const clonedSampleData = await sampleDataService(log).cloneForNewVersion({
+                    projectId,
+                    sourceFlowVersion: previousVersion,
+                    targetFlowVersion: mutatedFlowVersion,
+                })
+                clonedSampleData.forEach((sampleDataSettings, stepName) => {
                     operations.push({
                         type: FlowOperationType.UPDATE_SAMPLE_DATA_INFO,
                         request: {
-                            stepName: previousVersion.trigger.name,
-                            sampleDataSettings: previousVersion.trigger.settings.sampleData,
+                            stepName,
+                            sampleDataSettings: {
+                                sampleDataFileId: sampleDataSettings.sampleDataFileId,
+                                sampleDataInputFileId: sampleDataSettings.sampleDataInputFileId,
+                            },
                         },
                     })
-                }
+                })
                 break
             }
             case FlowOperationType.SAVE_SAMPLE_DATA: {

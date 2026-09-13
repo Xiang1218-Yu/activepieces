@@ -69,6 +69,46 @@ export const sampleDataService = (log: FastifyBaseLogger) => ({
         const sampleDataArray = await Promise.all(sampleDataPromises)
         return Object.assign({}, ...sampleDataArray)
     },
+    async cloneForNewVersion(params: CloneForNewVersionParams): Promise<ClonedSampleDataByStep> {
+        const { projectId, sourceFlowVersion, targetFlowVersion } = params
+        const steps = flowStructureUtil.getAllSteps(sourceFlowVersion.trigger)
+        const entries = await Promise.all(steps.map(async (step): Promise<[string, SampleDataSettings] | null> => {
+            const sampleDataSettings: SampleDataSettings = {}
+            const oldOutputFileId = step.settings.sampleData?.sampleDataFileId
+            const oldInputFileId = step.settings.sampleData?.sampleDataInputFileId
+            if (!isNil(oldOutputFileId)) {
+                const newFileId = await cloneSampleDataFile({
+                    log,
+                    projectId,
+                    sourceFlowVersion,
+                    targetFlowVersion,
+                    stepName: step.name,
+                    oldFileId: oldOutputFileId,
+                    fileType: FileType.SAMPLE_DATA,
+                })
+                if (!isNil(newFileId)) {
+                    sampleDataSettings.sampleDataFileId = newFileId
+                }
+            }
+            if (!isNil(oldInputFileId)) {
+                const newFileId = await cloneSampleDataFile({
+                    log,
+                    projectId,
+                    sourceFlowVersion,
+                    targetFlowVersion,
+                    stepName: step.name,
+                    oldFileId: oldInputFileId,
+                    fileType: FileType.SAMPLE_DATA_INPUT,
+                })
+                if (!isNil(newFileId)) {
+                    sampleDataSettings.sampleDataInputFileId = newFileId
+                }
+            }
+            const clonedSomething = !isNil(sampleDataSettings.sampleDataFileId) || !isNil(sampleDataSettings.sampleDataInputFileId)
+            return clonedSomething ? [step.name, sampleDataSettings] : null
+        }))
+        return new Map(entries.filter((entry): entry is [string, SampleDataSettings] => !isNil(entry)))
+    },
 })
 
 export async function saveSampleData({
@@ -145,4 +185,63 @@ type SaveSampleDataParams = {
     stepName: string
     payload: unknown
     type: SampleDataFileType
+}
+
+type CloneForNewVersionParams = {
+    projectId: ProjectId
+    sourceFlowVersion: FlowVersion
+    targetFlowVersion: FlowVersion
+}
+
+type ClonedSampleDataByStep = Map<string, SampleDataSettings>
+
+async function cloneSampleDataFile({
+    log,
+    projectId,
+    sourceFlowVersion,
+    targetFlowVersion,
+    stepName,
+    oldFileId,
+    fileType,
+}: {
+    log: FastifyBaseLogger
+    projectId: ProjectId
+    sourceFlowVersion: FlowVersion
+    targetFlowVersion: FlowVersion
+    stepName: string
+    oldFileId: string
+    fileType: FileType
+}): Promise<string | undefined> {
+    const existingFile = await fileService(log).getFile({
+        projectId,
+        fileId: oldFileId,
+        type: fileType,
+    })
+    if (isNil(existingFile) || existingFile.metadata?.flowVersionId !== sourceFlowVersion.id) {
+        return undefined
+    }
+    const response = await fileService(log).getDataOrUndefined({
+        projectId,
+        fileId: oldFileId,
+        type: fileType,
+    })
+    if (isNil(response)) {
+        return undefined
+    }
+    const newFileId = apId()
+    await fileService(log).save({
+        projectId,
+        fileId: newFileId,
+        data: response.data,
+        size: response.data.length,
+        type: fileType,
+        compression: FileCompression.NONE,
+        metadata: {
+            ...existingFile.metadata,
+            flowId: targetFlowVersion.flowId,
+            flowVersionId: targetFlowVersion.id,
+            stepName,
+        },
+    })
+    return newFileId
 }
