@@ -263,7 +263,6 @@ export const TiptapEditor = ({
       projectId: projectId ?? '',
       limit: 100,
     },
-    extraKeys: ['mention-resolver-variables', projectId ?? ''],
     enabled: !!projectId,
   });
   const variableByName = useMemo(

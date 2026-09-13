@@ -2,6 +2,7 @@ import { ErrorCode } from '@activepieces/core-utils';
 import {
   formErrors,
   VARIABLE_NAME_REGEX,
+  VariableType,
   VariableWithoutSensitiveData,
 } from '@activepieces/shared';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -32,6 +33,13 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { internalErrorToast } from '@/components/ui/sonner';
 import { variablesApi } from '@/features/variables/api/variables';
 import { api } from '@/lib/api';
@@ -43,6 +51,7 @@ const FormSchema = z.object({
     .string()
     .min(1, formErrors.required)
     .regex(VARIABLE_NAME_REGEX, 'invalidVariableName'),
+  type: z.enum(VariableType),
   value: z.string().optional(),
 });
 
@@ -89,9 +98,11 @@ function VariableForm(props: VariableFormProps) {
     mode: 'onChange',
     defaultValues: {
       name: existing?.name ?? '',
+      type: existing?.type ?? VariableType.SECRET,
       value: '',
     },
   });
+  const selectedType = form.watch('type');
 
   const { mutate: save, isPending } = useMutation({
     mutationFn: async (values: FormValues) => {
@@ -99,11 +110,15 @@ function VariableForm(props: VariableFormProps) {
         throw new Error('No project');
       }
       if (existing) {
-        return variablesApi.update(existing.id, { value: values.value });
+        return variablesApi.update(existing.id, {
+          type: values.type,
+          ...(showValueField ? { value: values.value } : {}),
+        });
       }
       return variablesApi.create({
         projectId,
         name: values.name,
+        type: values.type,
         value: values.value ?? '',
       });
     },
@@ -125,7 +140,7 @@ function VariableForm(props: VariableFormProps) {
   });
 
   const handleSubmit = (values: FormValues) => {
-    if (!values.value) {
+    if ((!isEdit || showValueField) && !values.value) {
       form.setError('value', { type: 'manual', message: formErrors.required });
       return;
     }
@@ -157,6 +172,40 @@ function VariableForm(props: VariableFormProps) {
               <FormControl>
                 <Input {...field} disabled={isEdit} placeholder="STRIPE_PROD" />
               </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="type"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>{t('Type')}</FormLabel>
+              <Select onValueChange={field.onChange} value={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value={VariableType.SECRET}>
+                    {t('Sensitive')}
+                  </SelectItem>
+                  <SelectItem value={VariableType.TEXT}>
+                    {t('Plain text')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                {selectedType === VariableType.SECRET
+                  ? t(
+                      'Masked everywhere. Only editors can reveal it, and every reveal is audited.',
+                    )
+                  : t(
+                      'Visible to anyone who can view variables. Do not use for secrets.',
+                    )}
+              </p>
               <FormMessage />
             </FormItem>
           )}
@@ -219,14 +268,12 @@ function VariableForm(props: VariableFormProps) {
         <DialogFooter>
           <DialogClose asChild>
             <Button type="button" variant="outline">
-              {isEdit && !showValueField ? t('Close') : t('Cancel')}
+              {t('Cancel')}
             </Button>
           </DialogClose>
-          {(!isEdit || showValueField) && (
-            <Button type="submit" loading={isPending}>
-              {isEdit ? t('Save new value') : t('Create')}
-            </Button>
-          )}
+          <Button type="submit" loading={isPending}>
+            {isEdit ? t('Save') : t('Create')}
+          </Button>
         </DialogFooter>
       </form>
     </Form>

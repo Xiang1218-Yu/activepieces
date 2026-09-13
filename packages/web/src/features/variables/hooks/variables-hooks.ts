@@ -1,4 +1,4 @@
-import { ListVariablesRequestQuery } from '@activepieces/shared';
+import { ListVariablesRequestQuery, VariableType } from '@activepieces/shared';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { t } from 'i18next';
 import { useMemo } from 'react';
@@ -15,14 +15,19 @@ import { variablesApi } from '../api/variables';
 
 type UseVariablesProps = {
   request: ListVariablesRequestQuery;
-  extraKeys: unknown[];
   enabled?: boolean;
 };
 
+const isVariableType = (value: string): value is VariableType =>
+  value === VariableType.SECRET || value === VariableType.TEXT;
+
+const isBooleanString = (value: string): value is 'true' | 'false' =>
+  value === 'true' || value === 'false';
+
 export const variablesQueries = {
-  useVariables: ({ request, extraKeys, enabled }: UseVariablesProps) => {
+  useVariables: ({ request, enabled }: UseVariablesProps) => {
     return useQuery({
-      queryKey: ['variables', ...extraKeys],
+      queryKey: ['variables', request],
       queryFn: () => variablesApi.list(request),
       enabled,
     });
@@ -37,6 +42,10 @@ export const variablesQueries = {
         cursor: sp.get(CURSOR_QUERY_PARAM) ?? undefined,
         limit: limitParam ? parseInt(limitParam) : 10,
         name: sp.get('name') ?? undefined,
+        types: sp.getAll('type').filter(isVariableType),
+        updatedAfter: sp.get('updatedAfter') ?? undefined,
+        updatedBefore: sp.get('updatedBefore') ?? undefined,
+        usedInFlows: sp.getAll('usedInFlows').filter(isBooleanString),
         ownerEmails: sp.getAll('owner'),
       };
     }, [search]);

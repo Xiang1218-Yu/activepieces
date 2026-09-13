@@ -1,19 +1,29 @@
 import { Permission } from '@activepieces/core-utils';
-import { VariableWithoutSensitiveData } from '@activepieces/shared';
+import {
+  ListVariablesRequestQuery,
+  VariableListItem,
+  VariableType,
+} from '@activepieces/shared';
 import { ColumnDef } from '@tanstack/react-table';
 import { t } from 'i18next';
 import {
+  FileText,
+  KeyRound,
   Link2,
+  Lock,
   MoreVertical,
   Pencil,
   Search,
+  Shapes,
   Trash2,
   Variable,
+  Workflow,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { VariableDialog } from '@/app/variables/variable-dialog';
+import { VariableValueCell } from '@/app/variables/variable-value-cell';
 import {
   BulkAction,
   DataTable,
@@ -25,6 +35,7 @@ import { ConfirmationDeleteDialog } from '@/components/custom/delete-dialog';
 import { FormattedDate } from '@/components/custom/formatted-date';
 import { PermissionNeededTooltip } from '@/components/custom/permission-needed-tooltip';
 import { PlusIcon } from '@/components/icons/plus';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -56,40 +67,44 @@ function VariablesPage() {
   const canWrite = checkAccess(Permission.WRITE_VARIABLE);
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [editing, setEditing] = useState<
-    VariableWithoutSensitiveData | undefined
-  >(undefined);
-  const [deleting, setDeleting] = useState<
-    VariableWithoutSensitiveData | undefined
-  >(undefined);
-  const [selectedRows, setSelectedRows] = useState<
-    VariableWithoutSensitiveData[]
-  >([]);
+  const [editing, setEditing] = useState<VariableListItem | undefined>(
+    undefined,
+  );
+  const [deleting, setDeleting] = useState<VariableListItem | undefined>(
+    undefined,
+  );
+  const [selectedRows, setSelectedRows] = useState<VariableListItem[]>([]);
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
 
-  const { cursor, limit, name, ownerEmails } =
-    variablesQueries.useListSearchParams();
+  const {
+    cursor,
+    limit,
+    name,
+    types,
+    updatedAfter,
+    updatedBefore,
+    usedInFlows,
+    ownerEmails,
+  } = variablesQueries.useListSearchParams();
+
+  const request: ListVariablesRequestQuery = {
+    projectId,
+    cursor,
+    limit,
+    name,
+    type: types.length > 0 ? types : undefined,
+    updatedAfter,
+    updatedBefore,
+    usedInFlows: usedInFlows.length > 0 ? usedInFlows : undefined,
+    includeValues: 'true',
+  };
 
   const {
     data: variables,
     isLoading,
     isError,
     refetch,
-  } = variablesQueries.useVariables({
-    request: {
-      projectId,
-      cursor,
-      limit,
-      name,
-    },
-    extraKeys: [
-      'variables',
-      cursor ?? '',
-      String(limit),
-      name ?? '',
-      projectId,
-    ],
-  });
+  } = variablesQueries.useVariables({ request });
 
   const { mutateAsync: deleteVariable } =
     variablesMutations.useBulkDeleteVariables(refetch);
@@ -108,8 +123,8 @@ function VariablesPage() {
     };
   }, [variables, ownerEmails]);
 
-  const filters: DataTableFilters<keyof VariableWithoutSensitiveData>[] =
-    ownerColumnHooks.useOwnerColumnFilter<VariableWithoutSensitiveData>(
+  const filters: DataTableFilters<keyof VariableListItem>[] =
+    ownerColumnHooks.useOwnerColumnFilter<VariableListItem>(
       [
         {
           type: 'input',
@@ -117,105 +132,184 @@ function VariablesPage() {
           accessorKey: 'name',
           icon: Search,
         },
+        {
+          type: 'select',
+          title: t('Type'),
+          accessorKey: 'type',
+          icon: Shapes,
+          options: [
+            { label: t('Sensitive'), value: VariableType.SECRET, icon: Lock },
+            {
+              label: t('Plain text'),
+              value: VariableType.TEXT,
+              icon: FileText,
+            },
+          ],
+        },
+        {
+          type: 'select',
+          title: t('Usage'),
+          accessorKey: 'usedInFlows',
+          icon: Workflow,
+          options: [
+            { label: t('Used'), value: 'true' },
+            { label: t('Unused'), value: 'false' },
+          ],
+        },
+        {
+          type: 'date',
+          title: t('Last updated'),
+          accessorKey: 'updated',
+        },
       ],
       1,
       owners,
     );
 
-  const columns: ColumnDef<
-    RowDataWithActions<VariableWithoutSensitiveData>,
-    unknown
-  >[] = ownerColumnHooks.useOwnerColumn<VariableWithoutSensitiveData>(
-    [
-      {
-        accessorKey: 'name',
-        size: 280,
-        header: ({ column }) => (
-          <DataTableColumnHeader
-            column={column}
-            title={t('Name')}
-            icon={Variable}
-          />
-        ),
-        cell: ({ row }) => (
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="shrink-0 flex items-center justify-center w-8 h-8 rounded-md bg-primary/10 text-primary">
-              <Variable className="w-4 h-4" />
+  const columns: ColumnDef<RowDataWithActions<VariableListItem>, unknown>[] =
+    ownerColumnHooks.useOwnerColumn<VariableListItem>(
+      [
+        {
+          accessorKey: 'name',
+          size: 240,
+          header: ({ column }) => (
+            <DataTableColumnHeader
+              column={column}
+              title={t('Name')}
+              icon={Variable}
+            />
+          ),
+          cell: ({ row }) => (
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="shrink-0 flex items-center justify-center w-8 h-8 rounded-md bg-primary/10 text-primary">
+                <Variable className="w-4 h-4" />
+              </div>
+              <span className="font-mono text-sm truncate">
+                {row.original.name}
+              </span>
             </div>
-            <span className="font-mono text-sm truncate">
-              {row.original.name}
-            </span>
-          </div>
-        ),
-      },
-      {
-        accessorKey: 'updated',
-        size: 180,
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title={t('Last updated')} />
-        ),
-        cell: ({ row }) => (
-          <FormattedDate date={new Date(row.original.updated)} />
-        ),
-      },
-      {
-        id: 'actions',
-        size: 60,
-        cell: ({ row }) => (
-          <div className="flex justify-end">
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={t('Open menu')}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem
-                  disabled={!canWrite}
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    setEditing(row.original);
-                  }}
-                >
-                  <Pencil className="h-4 w-4 mr-2" />
-                  {t('Edit')}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    void copyReferenceToClipboard(row.original.name);
-                  }}
-                >
-                  <Link2 className="h-4 w-4 mr-2" />
-                  {t('Copy reference')}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={!canWrite}
-                  className="text-destructive focus:text-destructive"
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    setDeleting(row.original);
-                  }}
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  {t('Delete')}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        ),
-      },
-    ],
-    2,
-  );
+          ),
+        },
+        {
+          accessorKey: 'value',
+          size: 200,
+          header: ({ column }) => (
+            <DataTableColumnHeader
+              column={column}
+              title={t('Value')}
+              icon={KeyRound}
+            />
+          ),
+          cell: ({ row }) => <VariableValueCell variable={row.original} />,
+        },
+        {
+          accessorKey: 'type',
+          size: 130,
+          header: ({ column }) => (
+            <DataTableColumnHeader
+              column={column}
+              title={t('Type')}
+              icon={Shapes}
+            />
+          ),
+          cell: ({ row }) =>
+            row.original.type === VariableType.SECRET ? (
+              <Badge variant="warning">
+                <Lock className="h-3 w-3 mr-1" />
+                {t('Sensitive')}
+              </Badge>
+            ) : (
+              <Badge variant="accent">
+                <FileText className="h-3 w-3 mr-1" />
+                {t('Plain text')}
+              </Badge>
+            ),
+        },
+        {
+          accessorKey: 'usedInFlows',
+          size: 110,
+          header: ({ column }) => (
+            <DataTableColumnHeader
+              column={column}
+              title={t('Usage')}
+              icon={Workflow}
+            />
+          ),
+          cell: ({ row }) =>
+            row.original.usedInFlows ? (
+              <Badge variant="success">{t('Used')}</Badge>
+            ) : (
+              <Badge variant="accent">{t('Unused')}</Badge>
+            ),
+        },
+        {
+          accessorKey: 'updated',
+          size: 180,
+          header: ({ column }) => (
+            <DataTableColumnHeader column={column} title={t('Last updated')} />
+          ),
+          cell: ({ row }) => (
+            <FormattedDate date={new Date(row.original.updated)} />
+          ),
+        },
+        {
+          id: 'actions',
+          size: 60,
+          cell: ({ row }) => (
+            <div className="flex justify-end">
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={t('Open menu')}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem
+                    disabled={!canWrite}
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      setEditing(row.original);
+                    }}
+                  >
+                    <Pencil className="h-4 w-4 mr-2" />
+                    {t('Edit')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      void copyReferenceToClipboard(row.original.name);
+                    }}
+                  >
+                    <Link2 className="h-4 w-4 mr-2" />
+                    {t('Copy reference')}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={!canWrite}
+                    className="text-destructive focus:text-destructive"
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      setDeleting(row.original);
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    {t('Delete')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          ),
+        },
+      ],
+      3,
+    );
 
-  const bulkActions: BulkAction<VariableWithoutSensitiveData>[] = useMemo(
+  const bulkActions: BulkAction<VariableListItem>[] = useMemo(
     () => [
       {
         render: (_rows, resetSelection) => (

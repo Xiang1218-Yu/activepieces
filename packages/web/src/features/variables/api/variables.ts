@@ -5,6 +5,7 @@ import {
   RevealVariableResponse,
   UpdateVariableRequestBody,
   UpsertVariableRequestBody,
+  VariableListItem,
   VariableWithoutSensitiveData,
 } from '@activepieces/shared';
 
@@ -13,11 +14,8 @@ import { api } from '@/lib/api';
 export const variablesApi = {
   list(
     request: ListVariablesRequestQuery,
-  ): Promise<SeekPage<VariableWithoutSensitiveData>> {
-    return api.get<SeekPage<VariableWithoutSensitiveData>>(
-      '/v1/variables',
-      request,
-    );
+  ): Promise<SeekPage<VariableListItem>> {
+    return api.get<SeekPage<VariableListItem>>('/v1/variables', request);
   },
   create(
     request: UpsertVariableRequestBody,

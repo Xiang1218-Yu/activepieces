@@ -1,5 +1,5 @@
 import { ApId, Permission, SeekPage } from '@activepieces/core-utils'
-import { AppConnectionOwners, ApplicationEventName, ListVariablesRequestQuery, PrincipalType, RevealVariableResponse, SERVICE_KEY_SECURITY_OPENAPI, UpdateVariableRequestBody, UpsertVariableRequestBody, VariableWithoutSensitiveData } from '@activepieces/shared'
+import { AppConnectionOwners, ApplicationEventName, ListVariablesRequestQuery, PrincipalType, RevealVariableResponse, SERVICE_KEY_SECURITY_OPENAPI, UpdateVariableRequestBody, UpsertVariableRequestBody, VariableListItem, VariableWithoutSensitiveData } from '@activepieces/shared'
 import { FastifyPluginCallbackZod } from 'fastify-type-provider-zod'
 import { StatusCodes } from 'http-status-codes'
 import { z } from 'zod'
@@ -17,6 +17,7 @@ export const variableController: FastifyPluginCallbackZod = (app, _opts, done) =
             projectId: request.projectId,
             platformId: request.principal.platform.id,
             name: request.body.name,
+            type: request.body.type,
             value: request.body.value,
             metadata: request.body.metadata,
             ownerId,
@@ -33,6 +34,7 @@ export const variableController: FastifyPluginCallbackZod = (app, _opts, done) =
             id: request.params.id,
             projectId: request.projectId,
             platformId: request.principal.platform.id,
+            type: request.body.type,
             value: request.body.value,
             metadata: request.body.metadata,
         })
@@ -43,13 +45,18 @@ export const variableController: FastifyPluginCallbackZod = (app, _opts, done) =
         await reply.status(StatusCodes.OK).send(variable)
     })
 
-    app.get('/', ListVariablesRequest, async (request): Promise<SeekPage<VariableWithoutSensitiveData>> => {
+    app.get('/', ListVariablesRequest, async (request): Promise<SeekPage<VariableListItem>> => {
         return variableService(request.log).list({
             projectId: request.projectId,
             platformId: request.principal.platform.id,
             cursor: request.query.cursor,
             limit: request.query.limit,
             name: request.query.name,
+            types: request.query.type,
+            updatedAfter: request.query.updatedAfter,
+            updatedBefore: request.query.updatedBefore,
+            usedInFlows: request.query.usedInFlows?.map((value) => value === 'true'),
+            includeValues: request.query.includeValues === 'true',
         })
     })
 
@@ -148,7 +155,7 @@ const ListVariablesRequest = {
         querystring: ListVariablesRequestQuery,
         description: 'List project variables',
         response: {
-            [StatusCodes.OK]: SeekPage(VariableWithoutSensitiveData),
+            [StatusCodes.OK]: SeekPage(VariableListItem),
         },
     },
 }

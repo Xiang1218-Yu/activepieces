@@ -1,8 +1,9 @@
 import { ActivepiecesError, ApId, apId, Cursor, ErrorCode, isNil, Metadata, PlatformId, ProjectId, SeekPage, spreadIfDefined, UserId } from '@activepieces/core-utils'
-import { AppConnectionOwners, Variable, VariableWithoutSensitiveData } from '@activepieces/shared'
+import { AppConnectionOwners, Variable, VariableListItem, VariableType, VariableValue, VariableWithoutSensitiveData } from '@activepieces/shared'
 import { FastifyBaseLogger } from 'fastify'
-import { Equal, ILike, QueryFailedError } from 'typeorm'
+import { Between, Equal, FindOperator, ILike, In, LessThanOrEqual, MoreThanOrEqual, QueryFailedError } from 'typeorm'
 import { repoFactory } from '../core/db/repo-factory'
+import { flowVersionRepo } from '../flows/flow-version/flow-version.service'
 import { encryptUtils } from '../helper/encryption'
 import { buildPaginator } from '../helper/pagination/build-paginator'
 import { paginationHelper } from '../helper/pagination/pagination-utils'
@@ -13,7 +14,7 @@ export const variableRepo = repoFactory(VariableEntity)
 
 export const variableService = (log: FastifyBaseLogger) => ({
     async create(params: CreateParams): Promise<VariableWithoutSensitiveData> {
-        const { projectId, platformId, name, value, ownerId, metadata } = params
+        const { projectId, platformId, name, type, value, ownerId, metadata } = params
         const id = apId()
         try {
             await variableRepo().insert({
@@ -21,6 +22,7 @@ export const variableService = (log: FastifyBaseLogger) => ({
                 projectId,
                 platformId,
                 name,
+                type: type ?? VariableType.SECRET,
                 ownerId: ownerId ?? null,
                 value: await encryptUtils.encryptObject({ secret_text: value }),
                 ...spreadIfDefined('metadata', metadata),
@@ -40,18 +42,27 @@ export const variableService = (log: FastifyBaseLogger) => ({
     },
 
     async update(params: UpdateParams): Promise<VariableWithoutSensitiveData> {
-        const { id, projectId, platformId, value, metadata } = params
+        const { id, projectId, platformId, type, value, metadata } = params
         await getOneOrThrowWithoutValue({ id, projectId, platformId })
         await variableRepo().update({ id, projectId, platformId }, {
             ...(isNil(value) ? {} : { value: await encryptUtils.encryptObject({ secret_text: value }) }),
+            ...spreadIfDefined('type', type),
             ...spreadIfDefined('metadata', metadata),
         })
         log.info({ id, project: { id: projectId } }, 'Variable updated')
         return getOneOrThrowWithoutValue({ id, projectId, platformId })
     },
 
-    async list(params: ListParams): Promise<SeekPage<VariableWithoutSensitiveData>> {
-        const { projectId, platformId, cursor, limit, name } = params
+    async list(params: ListParams): Promise<SeekPage<VariableListItem>> {
+        const { projectId, platformId, cursor, limit, name, types, updatedAfter, updatedBefore, usedInFlows, includeValues } = params
+        const usedNames = await getUsedVariableNames({ projectId })
+        const wantsUsed = usedInFlows?.includes(true) ?? false
+        const wantsUnused = usedInFlows?.includes(false) ?? false
+        const filterByUsage = wantsUsed !== wantsUnused
+        if (filterByUsage && wantsUsed && usedNames.size === 0) {
+            return paginationHelper.createPage<VariableListItem>([], null)
+        }
+
         const decodedCursor = paginationHelper.decodeCursor(cursor ?? null)
         const paginator = buildPaginator({
             entity: VariableEntity,
@@ -71,11 +82,22 @@ export const variableService = (log: FastifyBaseLogger) => ({
                 projectId: Equal(projectId),
                 platformId: Equal(platformId),
                 ...(isNil(name) ? {} : { name: ILike(`%${name}%`) }),
+                ...(isNil(types) || types.length === 0 ? {} : { type: In(types) }),
+                ...buildUpdatedCondition({ updatedAfter, updatedBefore }),
             })
+        if (filterByUsage && usedNames.size > 0) {
+            queryBuilder.andWhere(
+                wantsUsed ? 'variable.name IN (:...usedNames)' : 'variable.name NOT IN (:...usedNames)',
+                { usedNames: [...usedNames] },
+            )
+        }
 
         const { data, cursor: nextCursor } = await paginator.paginate(queryBuilder)
-        const sanitized = data.map(stripSensitiveData)
-        return paginationHelper.createPage<VariableWithoutSensitiveData>(sanitized, nextCursor)
+        const items = await Promise.all(data.map(async (row) => ({
+            ...(await toResponse(row, { includeValue: includeValues === true })),
+            usedInFlows: usedNames.has(row.name),
+        })))
+        return paginationHelper.createPage<VariableListItem>(items, nextCursor)
     },
 
     async getOwners(params: { projectId: ProjectId, platformId: PlatformId }): Promise<AppConnectionOwners[]> {
@@ -110,7 +132,7 @@ export const variableService = (log: FastifyBaseLogger) => ({
                 },
             })
         }
-        const decrypted = await encryptUtils.decryptObject<{ secret_text: string }>(row.value)
+        const decrypted = await encryptUtils.decryptObject<VariableValue>(row.value)
         return decrypted.secret_text
     },
 
@@ -126,7 +148,7 @@ export const variableService = (log: FastifyBaseLogger) => ({
                 },
             })
         }
-        const decrypted = await encryptUtils.decryptObject<{ secret_text: string }>(row.value)
+        const decrypted = await encryptUtils.decryptObject<VariableValue>(row.value)
         return decrypted.secret_text
     },
 
@@ -155,7 +177,51 @@ async function getOneOrThrowWithoutValue(params: GetOneParams): Promise<Variable
             },
         })
     }
-    return stripSensitiveData(row)
+    return toResponse(row)
+}
+
+async function getUsedVariableNames({ projectId }: { projectId: ProjectId }): Promise<Set<string>> {
+    const latestVersionSubquery = flowVersionRepo()
+        .createQueryBuilder('fv_latest')
+        .select('fv_latest.id')
+        .where('fv_latest."flowId" = flow.id')
+        .orderBy('fv_latest.created', 'DESC')
+        .limit(1)
+
+    const rows = await flowVersionRepo()
+        .createQueryBuilder('flow_version')
+        .innerJoin('flow_version.flow', 'flow')
+        .select('(regexp_matches(flow_version.trigger::text, :mentionPattern, \'g\'))[1]', 'name')
+        .distinct(true)
+        .where('flow."projectId" = :projectId', { projectId })
+        .andWhere(`(flow_version.id = flow."publishedVersionId" OR flow_version.id = (${latestVersionSubquery.getQuery()}))`)
+        .setParameter('mentionPattern', VARIABLE_MENTION_PATTERN)
+        .getRawMany<{ name: string }>()
+
+    return new Set(rows.map((row) => row.name).filter((name) => !isNil(name)))
+}
+
+function buildUpdatedCondition({ updatedAfter, updatedBefore }: BuildUpdatedConditionParams): Record<string, FindOperator<Date>> {
+    const after = parseDateParam(updatedAfter)
+    const before = parseDateParam(updatedBefore)
+    if (!isNil(after) && !isNil(before)) {
+        return { updated: Between(after, before) }
+    }
+    if (!isNil(after)) {
+        return { updated: MoreThanOrEqual(after) }
+    }
+    if (!isNil(before)) {
+        return { updated: LessThanOrEqual(before) }
+    }
+    return {}
+}
+
+function parseDateParam(value: string | undefined): Date | undefined {
+    if (isNil(value)) {
+        return undefined
+    }
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? undefined : date
 }
 
 const POSTGRES_UNIQUE_VIOLATION = '23505'
@@ -173,26 +239,36 @@ function isUniqueViolation(error: unknown): boolean {
     )
 }
 
-function stripSensitiveData(row: VariableSchema): VariableWithoutSensitiveData {
-    return {
+async function toResponse(row: VariableSchema, options?: { includeValue: boolean }): Promise<VariableWithoutSensitiveData> {
+    const includeValue = options?.includeValue ?? true
+    const base: VariableWithoutSensitiveData = {
         id: row.id,
         created: row.created,
         updated: row.updated,
         name: row.name,
+        type: row.type,
         projectId: row.projectId,
         platformId: row.platformId,
         ownerId: row.ownerId,
         owner: mapToUserWithMetaInformation(row.owner ?? null),
         metadata: row.metadata,
     }
+    if (includeValue && row.type === VariableType.TEXT) {
+        const decrypted = await encryptUtils.decryptObject<VariableValue>(row.value)
+        return { ...base, value: decrypted.secret_text }
+    }
+    return base
 }
 
 const MAX_VARIABLE_OWNERS = 200
+
+const VARIABLE_MENTION_PATTERN = 'variables\\[\'([a-zA-Z0-9_]+)\'\\]'
 
 type CreateParams = {
     projectId: string
     platformId: string
     name: string
+    type: VariableType | undefined
     value: string
     ownerId: UserId | null
     metadata: Metadata | undefined
@@ -202,6 +278,7 @@ type UpdateParams = {
     id: ApId
     projectId: string
     platformId: string
+    type: VariableType | undefined
     value: string | undefined
     metadata: Metadata | undefined
 }
@@ -223,6 +300,16 @@ type ListParams = {
     cursor: Cursor | undefined
     limit: number | undefined
     name: string | undefined
+    types: VariableType[] | undefined
+    updatedAfter: string | undefined
+    updatedBefore: string | undefined
+    usedInFlows: boolean[] | undefined
+    includeValues: boolean | undefined
+}
+
+type BuildUpdatedConditionParams = {
+    updatedAfter: string | undefined
+    updatedBefore: string | undefined
 }
 
 export type { Variable }

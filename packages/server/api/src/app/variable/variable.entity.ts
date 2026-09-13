@@ -2,6 +2,7 @@ import {
     User,
     UserIdentity,
     Variable,
+    VariableType,
 } from '@activepieces/shared'
 import { EntitySchema } from 'typeorm'
 import { BaseColumnSchemaPart } from '../database/database-common'
@@ -18,6 +19,10 @@ export const VariableEntity = new EntitySchema<VariableSchema>({
         ...BaseColumnSchemaPart,
         name: {
             type: String,
+        },
+        type: {
+            type: String,
+            default: VariableType.SECRET,
         },
         projectId: {
             type: String,

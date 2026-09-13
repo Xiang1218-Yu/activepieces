@@ -13,6 +13,10 @@ vi.mock('lucide-react', () => ({
   Eye: () => null,
   EyeOff: () => null,
   Paperclip: () => null,
+  CheckIcon: () => null,
+  ChevronsUpDown: () => null,
+  ChevronDownIcon: () => null,
+  ChevronUpIcon: () => null,
 }));
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn() } }));
