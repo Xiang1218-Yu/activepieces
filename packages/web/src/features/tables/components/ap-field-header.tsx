@@ -1,4 +1,5 @@
 import { Permission } from '@activepieces/core-utils';
+import { FieldType } from '@activepieces/shared';
 import { ChevronDown, GripVertical } from 'lucide-react';
 import { useState } from 'react';
 
@@ -37,7 +38,13 @@ export function ApFieldHeader({ field }: ApFieldHeaderProps) {
   );
   const canEdit = userHasTableWritePermission && !lockedByOtherUser;
   const actions = canEdit
-    ? [FieldActionType.RENAME, FieldActionType.DELETE]
+    ? field.type === FieldType.STATIC_DROPDOWN
+      ? [
+          FieldActionType.RENAME,
+          FieldActionType.EDIT_OPTIONS,
+          FieldActionType.DELETE,
+        ]
+      : [FieldActionType.RENAME, FieldActionType.DELETE]
     : [];
   const hasActions = actions.length > 0;
 

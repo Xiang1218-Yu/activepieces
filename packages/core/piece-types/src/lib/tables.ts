@@ -47,6 +47,9 @@ export const Field = z.union([z.object({
     data: z.object({
         options: z.array(z.object({
             value: z.string(),
+            // Optional for backwards compatibility: options stored before this
+            // flag existed have no `disabled` key and are treated as active.
+            disabled: z.optional(z.boolean()),
         })),
     }),
 }), z.object({

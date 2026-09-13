@@ -237,6 +237,151 @@ describe('Field API', () => {
 
     })
 
+    describeWithAuth('POST /v1/fields/:id (Update dropdown options)', () => app!, (setup) => {
+        it('should add, reorder and deactivate options', async () => {
+            const ctx = await setup()
+            const table = await createAndSaveTable(ctx)
+            const field = await createDropdownField(ctx, table.id, ['Alpha', 'Beta'])
+
+            const response = await ctx.post(`/v1/fields/${field.id}`, {
+                data: {
+                    options: [
+                        { value: 'Beta' },
+                        { value: 'Alpha', disabled: true },
+                        { value: 'Gamma' },
+                    ],
+                },
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            const body = response?.json()
+            expect(body.data.options).toEqual([
+                { value: 'Beta', disabled: false },
+                { value: 'Alpha', disabled: true },
+                { value: 'Gamma', disabled: false },
+            ])
+        })
+
+        it('should normalize legacy options without a disabled flag to active', async () => {
+            const ctx = await setup()
+            const table = await createAndSaveTable(ctx)
+            const field = await createDropdownField(ctx, table.id, ['Alpha'])
+
+            const response = await ctx.post(`/v1/fields/${field.id}`, {
+                data: {
+                    options: [{ value: 'Alpha' }, { value: 'Beta' }],
+                },
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            expect(response?.json().data.options).toEqual([
+                { value: 'Alpha', disabled: false },
+                { value: 'Beta', disabled: false },
+            ])
+        })
+
+        it('should keep cells untouched when an option is deactivated', async () => {
+            const ctx = await setup()
+            const table = await createAndSaveTable(ctx)
+            const field = await createDropdownField(ctx, table.id, ['Alpha', 'Beta'])
+            const record = createMockRecord({ tableId: table.id, projectId: ctx.project.id })
+            await db.save('record', record)
+            const cell = createMockCell({ recordId: record.id, fieldId: field.id, projectId: ctx.project.id })
+            cell.value = 'Alpha'
+            await db.save('cell', cell)
+
+            const response = await ctx.post(`/v1/fields/${field.id}`, {
+                data: {
+                    options: [{ value: 'Alpha', disabled: true }, { value: 'Beta' }],
+                },
+            })
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+
+            const cellAfter = await db.findOneBy('cell', { id: cell.id })
+            expect(cellAfter?.value).toBe('Alpha')
+        })
+
+        it('should reject options update on a non-dropdown field', async () => {
+            const ctx = await setup()
+            const table = await createAndSaveTable(ctx)
+            const response = await ctx.post('/v1/fields', {
+                name: 'Text Field',
+                type: FieldType.TEXT,
+                tableId: table.id,
+            })
+            const field = response?.json()
+
+            const updateResponse = await ctx.post(`/v1/fields/${field.id}`, {
+                data: {
+                    options: [{ value: 'Alpha' }],
+                },
+            })
+
+            expect(updateResponse?.statusCode).toBe(StatusCodes.CONFLICT)
+        })
+
+        it('should reject empty options array', async () => {
+            const ctx = await setup()
+            const table = await createAndSaveTable(ctx)
+            const field = await createDropdownField(ctx, table.id, ['Alpha'])
+
+            const response = await ctx.post(`/v1/fields/${field.id}`, {
+                data: { options: [] },
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.CONFLICT)
+        })
+
+        it('should reject duplicate option values', async () => {
+            const ctx = await setup()
+            const table = await createAndSaveTable(ctx)
+            const field = await createDropdownField(ctx, table.id, ['Alpha'])
+
+            const response = await ctx.post(`/v1/fields/${field.id}`, {
+                data: {
+                    options: [{ value: 'Alpha' }, { value: 'Alpha' }],
+                },
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.CONFLICT)
+        })
+
+        it('should reject empty option values', async () => {
+            const ctx = await setup()
+            const table = await createAndSaveTable(ctx)
+            const field = await createDropdownField(ctx, table.id, ['Alpha'])
+
+            const response = await ctx.post(`/v1/fields/${field.id}`, {
+                data: {
+                    options: [{ value: 'Alpha' }, { value: '   ' }],
+                },
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.CONFLICT)
+        })
+
+        it('should update options and name together', async () => {
+            const ctx = await setup()
+            const table = await createAndSaveTable(ctx)
+            const field = await createDropdownField(ctx, table.id, ['Alpha'])
+
+            const response = await ctx.post(`/v1/fields/${field.id}`, {
+                name: 'Renamed Dropdown',
+                data: {
+                    options: [{ value: 'Alpha' }, { value: 'Beta' }],
+                },
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            const body = response?.json()
+            expect(body.name).toBe('Renamed Dropdown')
+            expect(body.data.options).toEqual([
+                { value: 'Alpha', disabled: false },
+                { value: 'Beta', disabled: false },
+            ])
+        })
+    })
+
     describeWithAuth('POST /v1/fields/reorder (Reorder)', () => app!, (setup) => {
         it('should reorder fields to the given order and resequence positions', async () => {
             const ctx = await setup()
@@ -317,6 +462,19 @@ async function createAndSaveTable(ctx: TestContext) {
     const table = createMockTable({ projectId: ctx.project.id })
     await db.save('table', table)
     return table
+}
+
+async function createDropdownField(ctx: TestContext, tableId: string, options: string[]) {
+    const response = await ctx.post('/v1/fields', {
+        name: 'Dropdown Field',
+        type: FieldType.STATIC_DROPDOWN,
+        tableId,
+        data: {
+            options: options.map((value) => ({ value })),
+        },
+    })
+    expect(response?.statusCode).toBe(StatusCodes.CREATED)
+    return response?.json()
 }
 
 async function createFieldsInOrder(ctx: TestContext, tableId: string, names: string[]) {

@@ -120,6 +120,18 @@ export const createServerState = (
         });
       });
     },
+    updateFieldOptions: (
+      fieldIndex: number,
+      options: { value: string; disabled?: boolean }[],
+    ) => {
+      addPromiseToQueue(async () => {
+        const field = clonedFields[fieldIndex];
+        const updatedField = await fieldsApi.update(field.id, {
+          data: { options },
+        });
+        clonedFields[fieldIndex] = updatedField;
+      });
+    },
     reorderField: (fieldIndex: number, targetIndex: number) => {
       addPromiseToQueue(async () => {
         const [movedField] = clonedFields.splice(fieldIndex, 1);

@@ -9,6 +9,24 @@ export enum FieldType {
     STATIC_DROPDOWN = 'STATIC_DROPDOWN',
 }
 
+export const StaticDropdownOption = z.object({
+    value: z.string(),
+    // Optional for backwards compatibility: options stored before this flag
+    // existed have no `disabled` key and are treated as active.
+    disabled: z.boolean().optional(),
+})
+export type StaticDropdownOption = z.infer<typeof StaticDropdownOption>
+
+export const StaticDropdownData = z.object({
+    options: z.array(StaticDropdownOption),
+})
+export type StaticDropdownData = z.infer<typeof StaticDropdownData>
+
+export const isActiveDropdownOption = (option: StaticDropdownOption): boolean => option.disabled !== true
+
+export const getActiveDropdownOptionValues = (data: StaticDropdownData): string[] =>
+    data.options.filter(isActiveDropdownOption).map((option) => option.value)
+
 export const Field = z.union([z.object({
     ...BaseModelSchema,
     name: z.string(),
@@ -17,11 +35,7 @@ export const Field = z.union([z.object({
     tableId: z.string(),
     projectId: z.string(),
     position: z.number(),
-    data: z.object({
-        options: z.array(z.object({
-            value: z.string(),
-        })),
-    }),
+    data: StaticDropdownData,
 }), z.object({
     ...BaseModelSchema,
     name: z.string(),

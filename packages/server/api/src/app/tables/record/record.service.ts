@@ -1,5 +1,5 @@
 import { ActivepiecesError, apId, chunk, Cursor, ErrorCode, isNil, SeekPage } from '@activepieces/core-utils'
-import { Cell, CreateRecordsRequest, Field, FieldType, Filter, FilterOperator, PopulatedRecord, TableWebhookEventType, UpdateRecordRequest } from '@activepieces/shared'
+import { Cell, CreateRecordsRequest, Field, FieldType, Filter, FilterOperator, getActiveDropdownOptionValues, PopulatedRecord, TableWebhookEventType, UpdateRecordRequest } from '@activepieces/shared'
 import { FastifyBaseLogger } from 'fastify'
 import { EntityManager, In } from 'typeorm'
 import { repoFactory } from '../../core/db/repo-factory'
@@ -34,6 +34,11 @@ export const recordService = {
                 existingFields.some((field) => field.id === cellData.fieldId),
             ),
         )
+        validateDropdownCellValues({
+            records: validRecords,
+            fields: existingFields,
+            locate: (recordIndex) => `record at index ${recordIndex}`,
+        })
 
         let insertedRecordIds: string[] = []
         insertedRecordIds = await transaction(async (entityManager: EntityManager) => {
@@ -183,6 +188,22 @@ export const recordService = {
                     existingFields.some((field) => field.id === cellData.fieldId),
                 )
 
+                // Existing records keep their historical (now deactivated)
+                // values: only cells whose value actually changes are
+                // validated against the currently active options.
+                const existingCells = await entityManager
+                    .getRepository(CellEntity)
+                    .find({
+                        where: { projectId, recordId: id },
+                    })
+                const existingValueByFieldId = new Map(existingCells.map((cell) => [cell.fieldId, cell.value]))
+                const changedCells = validCells.filter((cellData) => (cellData.value ?? '') !== (existingValueByFieldId.get(cellData.fieldId) ?? ''))
+                validateDropdownCellValues({
+                    records: [changedCells],
+                    fields: existingFields,
+                    locate: () => `record ${id}`,
+                })
+
                 // Prepare cells for upsert
                 const cellsToUpsert = validCells.map((cellData) => {
                     return {
@@ -284,6 +305,36 @@ export const recordService = {
             })
         }
     },
+}
+
+const isStaticDropdownField = (field: Field): field is Extract<Field, { type: FieldType.STATIC_DROPDOWN }> => field.type === FieldType.STATIC_DROPDOWN
+
+function validateDropdownCellValues({ records, fields, locate }: { records: Array<Array<{ fieldId: string, value: string | null }>>, fields: Field[], locate: (recordIndex: number) => string }): void {
+    const activeValuesByFieldId = new Map(
+        fields
+            .filter(isStaticDropdownField)
+            .map((field) => [field.id, { name: field.name, activeValues: getActiveDropdownOptionValues(field.data) }]),
+    )
+    if (activeValuesByFieldId.size === 0) {
+        return
+    }
+    records.forEach((recordData, recordIndex) => {
+        for (const cellData of recordData) {
+            const dropdown = activeValuesByFieldId.get(cellData.fieldId)
+            const value = cellData.value ?? ''
+            if (isNil(dropdown) || value === '') {
+                continue
+            }
+            if (!dropdown.activeValues.includes(value)) {
+                throw new ActivepiecesError({
+                    code: ErrorCode.VALIDATION,
+                    params: {
+                        message: `Invalid value "${value}" for dropdown field "${dropdown.name}" (fieldId: ${cellData.fieldId}) in ${locate(recordIndex)}: the option does not exist or has been deactivated`,
+                    },
+                })
+            }
+        }
+    })
 }
 
 function prepareRecordInsertions(

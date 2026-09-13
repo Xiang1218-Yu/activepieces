@@ -35,7 +35,7 @@ export type ClientField = {
   | {
       type: FieldType.STATIC_DROPDOWN;
       data: {
-        options: { value: string }[];
+        options: { value: string; disabled?: boolean }[];
       };
     }
 );
@@ -79,6 +79,10 @@ export type TableState = {
   deleteField: (fieldIndex: number) => void;
   renameTable: (newName: string) => void;
   renameField: (fieldIndex: number, newName: string) => void;
+  updateFieldOptions: (
+    fieldIndex: number,
+    options: { value: string; disabled?: boolean }[],
+  ) => void;
   reorderField: (fieldIndex: number, targetIndex: number) => void;
   setRecords: (records: PopulatedRecord[]) => void;
   setAgentRunId: (recordId: string, agentRunId: string | null) => void;
@@ -224,6 +228,21 @@ export const createApTableStore = (
           return {
             fields: state.fields.map((field, index) =>
               index === fieldIndex ? { ...field, name: newName } : field,
+            ),
+          };
+        });
+      },
+      updateFieldOptions: (
+        fieldIndex: number,
+        options: { value: string; disabled?: boolean }[],
+      ) => {
+        serverState.updateFieldOptions(fieldIndex, options);
+        return set((state) => {
+          return {
+            fields: state.fields.map((field, index) =>
+              index === fieldIndex && field.type === FieldType.STATIC_DROPDOWN
+                ? { ...field, data: { options } }
+                : field,
             ),
           };
         });

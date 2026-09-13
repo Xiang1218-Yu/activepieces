@@ -101,6 +101,16 @@ export const tablesCommon = {
             return date;
           }))]));
           break;
+        case FieldType.STATIC_DROPDOWN: {
+          const activeValues = field.data.options.filter((option) => option.disabled !== true).map((option) => option.value);
+          fieldValidations[field.externalId] = z.optional(activeValues.length === 0
+            ? z.string()
+            : z.pipe(z.string(), z.transform(val => {
+              if (!activeValues.includes(val)) throw new Error(`Invalid value "${val}" for dropdown field "${field.name}": the option does not exist or has been deactivated`);
+              return val;
+            })));
+          break;
+        }
         default:
           fieldValidations[field.externalId] = z.optional(z.string());
       }
@@ -147,7 +157,7 @@ export const tablesCommon = {
               defaultValue:'',
               required: false,
               options: {
-                options:[StaticDropdownEmptyOption,...field.data.options.map(option => ({ label: option.value, value: option.value }))],
+                options:[StaticDropdownEmptyOption,...field.data.options.filter((option) => option.disabled !== true).map(option => ({ label: option.value, value: option.value }))],
               },
             });
             break;

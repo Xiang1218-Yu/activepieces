@@ -1,5 +1,5 @@
 import { ActivepiecesError, apId, assertNotNullOrUndefined, ErrorCode, isNil } from '@activepieces/core-utils'
-import { CreateFieldRequest, Field, FieldState, FieldType, UpdateFieldRequest } from '@activepieces/shared'
+import { CreateFieldRequest, Field, FieldState, FieldType, StaticDropdownOption, UpdateFieldRequest } from '@activepieces/shared'
 import { In } from 'typeorm'
 import { repoFactory } from '../../core/db/repo-factory'
 import { system } from '../../helper/system/system'
@@ -118,6 +118,18 @@ export const fieldService = {
     },
 
     async update({ id, projectId, request }: UpdateParams): Promise<Field> {
+        const field = await this.getById({ id, projectId })
+        if (!isNil(request.data)) {
+            const options = validateAndNormalizeDropdownOptions({ field, options: request.data.options })
+            // Single atomic jsonb replace: no read-modify-write, so a
+            // concurrent update can never be partially overwritten.
+            await fieldRepo().update({
+                id,
+                projectId,
+            }, {
+                data: { options },
+            })
+        }
         if (!isNil(request.name)) {
             await fieldRepo().update({
                 id,
@@ -160,6 +172,48 @@ export const fieldService = {
             })
         }
     },
+}
+
+function validateAndNormalizeDropdownOptions({ field, options }: { field: Field, options: StaticDropdownOption[] }): StaticDropdownOption[] {
+    if (field.type !== FieldType.STATIC_DROPDOWN) {
+        throw new ActivepiecesError({
+            code: ErrorCode.VALIDATION,
+            params: {
+                message: `Options can only be updated for static dropdown fields, field "${field.name}" (${field.id}) is of type ${field.type}`,
+            },
+        })
+    }
+    if (options.length === 0) {
+        throw new ActivepiecesError({
+            code: ErrorCode.VALIDATION,
+            params: {
+                message: `Dropdown field "${field.name}" (${field.id}) must have at least one option`,
+            },
+        })
+    }
+    const seenValues = new Set<string>()
+    return options.map((option) => {
+        const value = option.value.trim()
+        if (value.length === 0) {
+            throw new ActivepiecesError({
+                code: ErrorCode.VALIDATION,
+                params: {
+                    message: `Dropdown field "${field.name}" (${field.id}) has an empty option value`,
+                },
+            })
+        }
+        if (seenValues.has(value)) {
+            throw new ActivepiecesError({
+                code: ErrorCode.VALIDATION,
+                params: {
+                    message: `Dropdown field "${field.name}" (${field.id}) has a duplicate option value: "${value}"`,
+                },
+            })
+        }
+        seenValues.add(value)
+        // Normalize legacy options (no `disabled` key) to an explicit flag on write
+        return { value, disabled: option.disabled === true }
+    })
 }
 
 type CreateParams = {

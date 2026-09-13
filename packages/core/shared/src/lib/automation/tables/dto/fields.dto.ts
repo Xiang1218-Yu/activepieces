@@ -1,12 +1,6 @@
 import { z } from 'zod'
-import { FieldType } from '../field'
+import { FieldType, StaticDropdownData } from '../field'
 
-
-const StaticDropdownData = z.object({
-    options: z.array(z.object({
-        value: z.string(),
-    })),
-})
 
 export const CreateFieldRequest = z.union([z.object({
     name: z.string(),
@@ -25,6 +19,7 @@ export const CreateFieldRequest = z.union([z.object({
 
 export const UpdateFieldRequest = z.object({
     name: z.string().optional(),
+    data: StaticDropdownData.optional(),
 })
 
 export const ReorderFieldsRequest = z.object({

@@ -1,5 +1,5 @@
 import { t } from 'i18next';
-import { Pencil, Trash } from 'lucide-react';
+import { ListChecks, Pencil, Trash } from 'lucide-react';
 import { useContext } from 'react';
 
 import { ConfirmationDeleteDialog } from '@/components/custom/delete-dialog';
@@ -8,11 +8,13 @@ import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { FieldHeaderContext } from '../utils/utils';
 
 import { useTableState } from './ap-table-state-provider';
+import EditFieldOptionsPopoverContent from './edit-field-options-popovercontent';
 import RenameFieldPopoverContent from './rename-field-popovercontent';
 
 export enum FieldActionType {
   DELETE,
   RENAME,
+  EDIT_OPTIONS,
 }
 
 const ApFieldActionMenuItemRenderer = ({
@@ -71,6 +73,23 @@ const ApFieldActionMenuItemRenderer = ({
         >
           <Pencil className="h-4 w-4 " />
           <span>{t('Rename')}</span>
+        </DropdownMenuItem>
+      );
+    case FieldActionType.EDIT_OPTIONS:
+      return (
+        <DropdownMenuItem
+          onSelect={() => {
+            setPopoverContent(<EditFieldOptionsPopoverContent />);
+            //this is needed because the popover is not open when the content is set
+            // so we need to wait for the next frame to open it
+            requestAnimationFrame(() => {
+              setIsPopoverOpen(true);
+            });
+          }}
+          className="flex items-center gap-2 cursor-pointer"
+        >
+          <ListChecks className="h-4 w-4 " />
+          <span>{t('Edit Options')}</span>
         </DropdownMenuItem>
       );
     default:

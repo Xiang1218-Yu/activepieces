@@ -252,6 +252,156 @@ describe('Record API', () => {
         })
     })
 
+    describeWithAuth('Dropdown option validation', () => app!, (setup) => {
+        it('should create a record with an active option value', async () => {
+            const ctx = await setup()
+            const { table, field } = await createTableWithDropdownField(ctx)
+
+            const response = await ctx.post('/v1/records', {
+                tableId: table.id,
+                records: [
+                    [{ fieldId: field.id, value: 'Active' }],
+                ],
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.CREATED)
+            expect(response?.json()[0].cells[field.id].value).toBe('Active')
+        })
+
+        it('should reject a deactivated option value on create with a locatable error', async () => {
+            const ctx = await setup()
+            const { table, field } = await createTableWithDropdownField(ctx)
+
+            const response = await ctx.post('/v1/records', {
+                tableId: table.id,
+                records: [
+                    [{ fieldId: field.id, value: 'Active' }],
+                    [{ fieldId: field.id, value: 'Deactivated' }],
+                ],
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.CONFLICT)
+            const message = response?.json().params.message
+            expect(message).toContain('Deactivated')
+            expect(message).toContain(field.name)
+            expect(message).toContain(field.id)
+            expect(message).toContain('index 1')
+        })
+
+        it('should reject an option value that never existed on create', async () => {
+            const ctx = await setup()
+            const { table, field } = await createTableWithDropdownField(ctx)
+
+            const response = await ctx.post('/v1/records', {
+                tableId: table.id,
+                records: [
+                    [{ fieldId: field.id, value: 'No Such Option' }],
+                ],
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.CONFLICT)
+            expect(response?.json().params.message).toContain('No Such Option')
+        })
+
+        it('should allow empty values on create', async () => {
+            const ctx = await setup()
+            const { table, field } = await createTableWithDropdownField(ctx)
+
+            const response = await ctx.post('/v1/records', {
+                tableId: table.id,
+                records: [
+                    [{ fieldId: field.id, value: '' }],
+                    [{ fieldId: field.id, value: null }],
+                ],
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.CREATED)
+        })
+
+        it('should keep a historical deactivated value when the record is updated without changing it', async () => {
+            const ctx = await setup()
+            const { table, field } = await createTableWithDropdownField(ctx)
+            const record = createMockRecord({ tableId: table.id, projectId: ctx.project.id })
+            await db.save('record', record)
+            const cell = createMockCell({ recordId: record.id, fieldId: field.id, projectId: ctx.project.id })
+            cell.value = 'Deactivated'
+            await db.save('cell', cell)
+
+            const response = await ctx.post(`/v1/records/${record.id}`, {
+                tableId: table.id,
+                cells: [
+                    { fieldId: field.id, value: 'Deactivated' },
+                ],
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            expect(response?.json().cells[field.id].value).toBe('Deactivated')
+        })
+
+        it('should reject changing a cell to a deactivated value on update', async () => {
+            const ctx = await setup()
+            const { table, field } = await createTableWithDropdownField(ctx)
+            const record = createMockRecord({ tableId: table.id, projectId: ctx.project.id })
+            await db.save('record', record)
+            const cell = createMockCell({ recordId: record.id, fieldId: field.id, projectId: ctx.project.id })
+            cell.value = 'Active'
+            await db.save('cell', cell)
+
+            const response = await ctx.post(`/v1/records/${record.id}`, {
+                tableId: table.id,
+                cells: [
+                    { fieldId: field.id, value: 'Deactivated' },
+                ],
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.CONFLICT)
+            const message = response?.json().params.message
+            expect(message).toContain('Deactivated')
+            expect(message).toContain(field.name)
+            expect(message).toContain(record.id)
+        })
+
+        it('should allow changing a historical value to an active option on update', async () => {
+            const ctx = await setup()
+            const { table, field } = await createTableWithDropdownField(ctx)
+            const record = createMockRecord({ tableId: table.id, projectId: ctx.project.id })
+            await db.save('record', record)
+            const cell = createMockCell({ recordId: record.id, fieldId: field.id, projectId: ctx.project.id })
+            cell.value = 'Deactivated'
+            await db.save('cell', cell)
+
+            const response = await ctx.post(`/v1/records/${record.id}`, {
+                tableId: table.id,
+                cells: [
+                    { fieldId: field.id, value: 'Active' },
+                ],
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            expect(response?.json().cells[field.id].value).toBe('Active')
+        })
+
+        it('should allow clearing a historical value on update', async () => {
+            const ctx = await setup()
+            const { table, field } = await createTableWithDropdownField(ctx)
+            const record = createMockRecord({ tableId: table.id, projectId: ctx.project.id })
+            await db.save('record', record)
+            const cell = createMockCell({ recordId: record.id, fieldId: field.id, projectId: ctx.project.id })
+            cell.value = 'Deactivated'
+            await db.save('cell', cell)
+
+            const response = await ctx.post(`/v1/records/${record.id}`, {
+                tableId: table.id,
+                cells: [
+                    { fieldId: field.id, value: '' },
+                ],
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            expect(response?.json().cells[field.id].value).toBe('')
+        })
+    })
+
     describeWithAuth('GET /v1/records (List with filters)', () => app!, (setup) => {
         it('EXISTS: should match record with non-empty cell', async () => {
             const ctx = await setup()
@@ -620,6 +770,24 @@ describe('Record API', () => {
 
 async function createTableWithField(ctx: TestContext) {
     return createTableWithTypedField({ ctx, type: FieldType.TEXT })
+}
+
+async function createTableWithDropdownField(ctx: TestContext) {
+    const table = createMockTable({ projectId: ctx.project.id })
+    await db.save('table', table)
+    const baseField = createMockField({ tableId: table.id, projectId: ctx.project.id })
+    const field = {
+        ...baseField,
+        type: FieldType.STATIC_DROPDOWN as const,
+        data: {
+            options: [
+                { value: 'Active' },
+                { value: 'Deactivated', disabled: true },
+            ],
+        },
+    }
+    await db.save('field', field)
+    return { table, field }
 }
 
 async function createTableWithTypedField({ ctx, type }: { ctx: TestContext, type: FieldType }) {

@@ -1,6 +1,6 @@
 import { ActivepiecesError, apId, isNil, PlatformId, ProjectId, unique } from '@activepieces/core-utils'
 import { apVersionUtil, memoryLock } from '@activepieces/server-utils'
-import { AppConnectionScope, AppConnectionStatus, AppConnectionType, ConnectionAwaitingAuthorization, ConnectionOperationType, ConnectionState, FlowProjectOperationType, FolderOperationType, FolderState, InstalledPiece, PackageType, PieceInstallFailure, PieceScope, ProjectReplaceApplied, ProjectReplaceErrorKind, ProjectReplaceItemFailure, ProjectReplaceItemKind, ProjectReplaceItemOp, ProjectReplacePreflightError, ProjectReplaceRequest, ProjectReplaceResponse, ProjectState, RequiredPiece, TableOperationType } from '@activepieces/shared'
+import { AppConnectionScope, AppConnectionStatus, AppConnectionType, ConnectionAwaitingAuthorization, ConnectionOperationType, ConnectionState, FieldType, FlowProjectOperationType, FolderOperationType, FolderState, InstalledPiece, PackageType, PieceInstallFailure, PieceScope, ProjectReplaceApplied, ProjectReplaceErrorKind, ProjectReplaceItemFailure, ProjectReplaceItemKind, ProjectReplaceItemOp, ProjectReplacePreflightError, ProjectReplaceRequest, ProjectReplaceResponse, ProjectState, RequiredPiece, TableOperationType } from '@activepieces/shared'
 import { FastifyBaseLogger } from 'fastify'
 import semver from 'semver'
 import { ArrayContains, In } from 'typeorm'
@@ -458,7 +458,10 @@ async function runTableOp({ op, projectId, applied, failed }: RunTableOpParams):
                         return fieldService.update({
                             projectId,
                             id: existingField.id,
-                            request: field,
+                            request: {
+                                name: field.name,
+                                ...(field.type === FieldType.STATIC_DROPDOWN && !isNil(field.data) ? { data: field.data } : {}),
+                            },
                         })
                     }
                     return fieldService.createFromState({ projectId, field, tableId: updated.id, position })

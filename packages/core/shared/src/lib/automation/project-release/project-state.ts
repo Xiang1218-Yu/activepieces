@@ -41,6 +41,9 @@ export const FieldState = z.object({
     data: Nullable(z.object({
         options: z.array(z.object({
             value: z.string(),
+            // Optional: releases exported before option deactivation existed
+            // have no `disabled` key and are treated as active.
+            disabled: z.boolean().optional(),
         })),
     })),
     externalId: z.string(),

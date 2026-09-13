@@ -98,7 +98,10 @@ export const projectStateService = (log: FastifyBaseLogger) => ({
                             await fieldService.update({
                                 projectId,
                                 id: existingField.id,
-                                request: field,
+                                request: {
+                                    name: field.name,
+                                    ...(field.type === FieldType.STATIC_DROPDOWN && !isNil(field.data) ? { data: field.data } : {}),
+                                },
                             })
                         }
                         else {
