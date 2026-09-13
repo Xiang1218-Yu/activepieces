@@ -23,6 +23,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
+import {
+  isItemSelectable,
+  SelectionPermissions,
+} from '../lib/selection-permissions';
 import { AutomationsSort, SelectedItemsMap, TreeItem } from '../lib/types';
 import { groupTreeItemsByFolder, nextSort } from '../lib/utils';
 
@@ -36,7 +40,6 @@ type AutomationsTableProps = {
   expandedFolders: Set<string>;
   projectMembers: ProjectMemberWithUser[] | undefined;
   folders: FolderDto[];
-  selectableCount: number;
   isPinned: (itemId: string) => boolean;
   onTogglePin: (itemId: string) => void;
   onToggleAllSelection: () => void;
@@ -51,6 +54,7 @@ type AutomationsTableProps = {
   onCreateInFolder?: (folderId: string, kind: CreateInFolderKind) => void;
   userHasPermissionToWriteFlow?: boolean;
   userHasPermissionToWriteTable?: boolean;
+  userHasPermissionToWriteFolder?: boolean;
   isCreatingFlow?: boolean;
   isCreatingTable?: boolean;
   isMoving: boolean;
@@ -107,7 +111,6 @@ export const AutomationsTable = ({
   expandedFolders,
   projectMembers,
   folders,
-  selectableCount,
   isPinned,
   onTogglePin,
   onToggleAllSelection,
@@ -122,6 +125,7 @@ export const AutomationsTable = ({
   onCreateInFolder,
   userHasPermissionToWriteFlow,
   userHasPermissionToWriteTable,
+  userHasPermissionToWriteFolder,
   isCreatingFlow,
   isCreatingTable,
   isMoving,
@@ -134,6 +138,21 @@ export const AutomationsTable = ({
   const { embedState } = useEmbedding();
   const groups = groupTreeItemsByFolder(items);
   const SortIcon = sortIcons[sort];
+  const permissions: SelectionPermissions = {
+    canWriteFlow: userHasPermissionToWriteFlow ?? true,
+    canWriteTable: userHasPermissionToWriteTable ?? true,
+    canWriteFolder: userHasPermissionToWriteFolder ?? true,
+  };
+  const selectableItemsInView = items.filter(
+    (item) =>
+      item.type !== 'load-more-folder' &&
+      isItemSelectable(item, permissions),
+  );
+  const allVisibleItemsSelected =
+    selectableItemsInView.length > 0 &&
+    selectableItemsInView.every((item) =>
+      selectedItems.has(`${item.type}-${item.id}`),
+    );
 
   return (
     <div className="overflow-x-auto">
@@ -141,9 +160,8 @@ export const AutomationsTable = ({
         <div className="flex items-center h-8 text-xs border-b font-medium text-foreground bg-muted/50">
           <div className="w-10 shrink-0 pl-4 pr-1">
             <Checkbox
-              checked={
-                selectableCount > 0 && selectedItems.size === selectableCount
-              }
+              checked={allVisibleItemsSelected}
+              disabled={selectableItemsInView.length === 0}
               onCheckedChange={onToggleAllSelection}
             />
           </div>
@@ -221,6 +239,10 @@ export const AutomationsTable = ({
                       <AutomationsTableRow
                         item={group.item}
                         isSelected={isItemSelected(group.item)}
+                        isSelectable={isItemSelectable(
+                          group.item,
+                          permissions,
+                        )}
                         isExpanded={expandedFolders.has(group.item.id)}
                         isPinned={isPinned(group.item.id)}
                         projectMembers={projectMembers}
@@ -262,6 +284,10 @@ export const AutomationsTable = ({
                           <AutomationsTableRow
                             item={child}
                             isSelected={isItemSelected(child)}
+                            isSelectable={isItemSelectable(
+                              child,
+                              permissions,
+                            )}
                             isExpanded={false}
                             isPinned={isPinned(child.id)}
                             projectMembers={projectMembers}
@@ -277,6 +303,14 @@ export const AutomationsTable = ({
                             onMoveTo={onMoveItem}
                             onExportFlow={onExportFlow}
                             onExportTable={onExportTable}
+                            userHasPermissionToWriteFlow={
+                              userHasPermissionToWriteFlow
+                            }
+                            userHasPermissionToWriteTable={
+                              userHasPermissionToWriteTable
+                            }
+                            isCreatingFlow={isCreatingFlow}
+                            isCreatingTable={isCreatingTable}
                             isMoving={isMoving}
                             isDuplicating={isDuplicating}
                             onLoadMore={
@@ -303,6 +337,7 @@ export const AutomationsTable = ({
                   <AutomationsTableRow
                     item={group.item}
                     isSelected={isItemSelected(group.item)}
+                    isSelectable={isItemSelectable(group.item, permissions)}
                     isExpanded={false}
                     isPinned={isPinned(group.item.id)}
                     projectMembers={projectMembers}
@@ -316,6 +351,14 @@ export const AutomationsTable = ({
                     onMoveTo={onMoveItem}
                     onExportFlow={onExportFlow}
                     onExportTable={onExportTable}
+                    userHasPermissionToWriteFlow={
+                      userHasPermissionToWriteFlow
+                    }
+                    userHasPermissionToWriteTable={
+                      userHasPermissionToWriteTable
+                    }
+                    isCreatingFlow={isCreatingFlow}
+                    isCreatingTable={isCreatingTable}
                     isMoving={isMoving}
                     isDuplicating={isDuplicating}
                     onLoadMore={undefined}

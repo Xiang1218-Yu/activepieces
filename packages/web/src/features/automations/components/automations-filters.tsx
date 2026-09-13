@@ -3,12 +3,14 @@ import {
   AppConnectionWithoutSensitiveData,
   FlowStatus,
   FolderDto,
+  RecentRunStatus,
 } from '@activepieces/shared';
 import { t } from 'i18next';
 import {
   Filter,
   FolderIcon,
   Link2,
+  PlayCircle,
   Search,
   Table2,
   ToggleLeft,
@@ -39,6 +41,7 @@ import { cn, DASHBOARD_CONTENT_PADDING_X } from '@/lib/utils';
 
 import { CreateNewMenu } from './create-new-menu';
 import { MultiSelectFilter } from './multi-select-filter';
+import { RunTimeRangeFilter } from './run-time-range-filter';
 
 type AutomationsFiltersProps = {
   searchTerm: string;
@@ -53,6 +56,14 @@ type AutomationsFiltersProps = {
   onOwnerFilterChange: (value: string[]) => void;
   folderFilter: string[];
   onFolderFilterChange: (value: string[]) => void;
+  recentRunStatusFilter: RecentRunStatus[];
+  onRecentRunStatusFilterChange: (value: RecentRunStatus[]) => void;
+  runAfter: string | null;
+  runBefore: string | null;
+  onRunRangeChange: (range: {
+    runAfter: string | null;
+    runBefore: string | null;
+  }) => void;
   onFilterChange?: () => void;
   folders: FolderDto[];
   connections: AppConnectionWithoutSensitiveData[] | undefined;
@@ -84,6 +95,11 @@ export const AutomationsFilters = ({
   onOwnerFilterChange,
   folderFilter,
   onFolderFilterChange,
+  recentRunStatusFilter,
+  onRecentRunStatusFilterChange,
+  runAfter,
+  runBefore,
+  onRunRangeChange,
   onFilterChange,
   folders,
   connections,
@@ -115,6 +131,13 @@ export const AutomationsFilters = ({
     value: status,
     label: formatUtils.convertEnumToHumanReadable(status),
   }));
+
+  const recentRunStatusOptions = Object.values(RecentRunStatus).map(
+    (status) => ({
+      value: status,
+      label: t(recentRunStatusLabels[status]),
+    }),
+  );
 
   const folderOptions = folders.map((folder) => ({
     value: folder.id,
@@ -187,6 +210,26 @@ export const AutomationsFilters = ({
               selectedValues={statusFilter}
               onChange={(values) => {
                 onStatusFilterChange(values);
+                onFilterChange?.();
+              }}
+            />
+
+            <MultiSelectFilter
+              label={t('Last run')}
+              icon={<PlayCircle className="h-4 w-4" />}
+              options={recentRunStatusOptions}
+              selectedValues={recentRunStatusFilter}
+              onChange={(values) => {
+                onRecentRunStatusFilterChange(values);
+                onFilterChange?.();
+              }}
+            />
+
+            <RunTimeRangeFilter
+              runAfter={runAfter}
+              runBefore={runBefore}
+              onChange={(range) => {
+                onRunRangeChange(range);
                 onFilterChange?.();
               }}
             />
@@ -331,4 +374,12 @@ export const AutomationsFilters = ({
       />
     </>
   );
+};
+
+const recentRunStatusLabels: Record<RecentRunStatus, string> = {
+  [RecentRunStatus.SUCCEEDED]: 'Succeeded',
+  [RecentRunStatus.FAILED]: 'Failed',
+  [RecentRunStatus.RUNNING]: 'Running',
+  [RecentRunStatus.PAUSED]: 'Paused',
+  [RecentRunStatus.NEVER_RUN]: 'Never run',
 };

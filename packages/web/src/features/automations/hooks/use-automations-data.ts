@@ -27,6 +27,7 @@ import {
   DEFAULT_PAGE_SIZE,
   FOLDER_PAGE_SIZE,
   hasNonFolderFilters,
+  hasRunFilters,
   ROOT_ITEMS_LIMIT,
 } from '../lib/utils';
 
@@ -76,6 +77,19 @@ export function useAutomationsData({
     );
   }, [foldersQuery.data, hideTables]);
 
+  const skipFlows =
+    (filters.typeFilter.length > 0 &&
+      !filters.typeFilter.includes('flow')) ||
+    (filters.typeFilter.length === 1 &&
+      filters.typeFilter[0] === 'table' &&
+      hasRunFilters(filters));
+  const hasFlowOnlyFilters =
+    filters.ownerFilter.length > 0 || hasRunFilters(filters);
+  const skipTables =
+    (filters.typeFilter.length > 0 &&
+      !filters.typeFilter.includes('table')) ||
+    hasFlowOnlyFilters;
+
   const folderContentsQuery = useQuery<FolderContentsMap>({
     queryKey: ['all-folder-contents', projectId, folderIds, hideTables],
     queryFn: async () => {
@@ -99,15 +113,13 @@ export function useAutomationsData({
       ]);
       return buildFolderContentsMap(folders, flowsPage.data, tablesPage.data);
     },
-    enabled: !!foldersQuery.data && foldersQuery.data.length > 0,
+    enabled:
+      !!foldersQuery.data &&
+      foldersQuery.data.length > 0 &&
+      !isFiltered,
     staleTime: STALE_TIME,
     refetchOnMount: 'always',
   });
-
-  const skipFlows =
-    filters.typeFilter.length > 0 && !filters.typeFilter.includes('flow');
-  const skipTables =
-    filters.typeFilter.length > 0 && !filters.typeFilter.includes('table');
 
   const rootFlowsQuery = useQuery({
     queryKey: ['root-flows', projectId, filters, sort],
@@ -120,12 +132,20 @@ export function useAutomationsData({
         name: filters.searchTerm || undefined,
         status:
           filters.statusFilter.length > 0
-            ? (filters.statusFilter as FlowStatus[])
+            ? filters.statusFilter.filter(isFlowStatus)
             : undefined,
         connectionExternalIds:
           filters.connectionFilter.length > 0
             ? filters.connectionFilter
             : undefined,
+        ownerIds:
+          filters.ownerFilter.length > 0 ? filters.ownerFilter : undefined,
+        recentRunStatus:
+          filters.recentRunStatusFilter.length > 0
+            ? filters.recentRunStatusFilter
+            : undefined,
+        runAfter: filters.runAfter ?? undefined,
+        runBefore: filters.runBefore ?? undefined,
         sortBy: sort === 'default' ? undefined : 'NAME',
         order: sortOrder(sort),
       }),
@@ -274,18 +294,19 @@ export function useAutomationsData({
     return all;
   }, [isFiltered, hasFolderFilter, expandedFolders, treeItems]);
 
-  const totalPages = Math.ceil(totalPageItems / pageSize);
+  const totalPages = Math.max(1, Math.ceil(totalPageItems / pageSize));
+  const safeRootPage = Math.min(rootPage, totalPages - 1);
   const isLoading =
     foldersQuery.isLoading ||
     (rootFlowsQuery.isLoading && !skipFlows) ||
     (rootTablesQuery.isLoading && !skipTables && !hideTables) ||
-    folderContentsQuery.isLoading;
+    (!isFiltered && folderContentsQuery.isLoading);
 
   const isError =
     foldersQuery.isError ||
     (rootFlowsQuery.isError && !skipFlows) ||
     (rootTablesQuery.isError && !skipTables && !hideTables) ||
-    folderContentsQuery.isError;
+    (isFiltered ? false : folderContentsQuery.isError);
 
   const invalidateAll = useCallback(() => {
     return Promise.all([
@@ -320,7 +341,7 @@ export function useAutomationsData({
     expandedFolders: effectiveExpandedFolders,
     toggleFolder,
     loadMoreInFolder,
-    rootPage,
+    rootPage: safeRootPage,
     pageSize,
     changePageSize,
     totalPages,
@@ -373,3 +394,9 @@ function emptyTablePage(): SeekPage<Table> {
 
 const STALE_TIME = 30_000;
 const FOLDER_CONTENTS_LIMIT = 1500;
+
+const FLOW_STATUSES = new Set<string>(Object.values(FlowStatus));
+
+function isFlowStatus(value: string): value is FlowStatus {
+  return FLOW_STATUSES.has(value);
+}

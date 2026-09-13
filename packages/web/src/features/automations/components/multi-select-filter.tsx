@@ -13,27 +13,27 @@ import {
 } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
-type MultiSelectFilterProps = {
+type MultiSelectFilterProps<T extends string> = {
   label: string;
   icon: React.ReactNode;
-  options: { value: string; label: string; icon?: React.ReactNode }[];
-  selectedValues: string[];
-  onChange: (values: string[]) => void;
+  options: { value: T; label: string; icon?: React.ReactNode }[];
+  selectedValues: T[];
+  onChange: (values: T[]) => void;
   searchable?: boolean;
 };
 
-export const MultiSelectFilter = ({
+export function MultiSelectFilter<T extends string>({
   label,
   icon,
   options,
   selectedValues,
   onChange,
   searchable = false,
-}: MultiSelectFilterProps) => {
+}: MultiSelectFilterProps<T>) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
 
-  const toggleValue = (value: string) => {
+  const toggleValue = (value: T) => {
     if (selectedValues.includes(value)) {
       onChange(selectedValues.filter((v) => v !== value));
     } else {
@@ -148,4 +148,4 @@ export const MultiSelectFilter = ({
       </PopoverContent>
     </Popover>
   );
-};
+}

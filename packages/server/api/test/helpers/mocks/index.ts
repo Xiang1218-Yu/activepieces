@@ -414,6 +414,7 @@ export const createMockFlow = (flow?: Partial<Flow>): Flow => {
         operationStatus: flow?.operationStatus ?? FlowOperationStatus.NONE,
         publishedVersionId: flow?.publishedVersionId ?? null,
         externalId: flow?.externalId ?? apId(),
+        ownerId: flow?.ownerId ?? null,
     }
 }
 

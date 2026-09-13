@@ -1,9 +1,16 @@
 import { useCallback, useMemo, useState } from 'react';
 
+import {
+  isItemSelectable,
+  SelectionPermissions,
+} from '../lib/selection-permissions';
 import { SelectableItemType, SelectedItemsMap, TreeItem } from '../lib/types';
 import { getItemKey } from '../lib/utils';
 
-export function useAutomationsSelection(treeItems: TreeItem[]) {
+export function useAutomationsSelection(
+  treeItems: TreeItem[],
+  permissions: SelectionPermissions,
+) {
   const [selectedItems, setSelectedItems] = useState<SelectedItemsMap>(
     new Map(),
   );
@@ -19,21 +26,39 @@ export function useAutomationsSelection(treeItems: TreeItem[]) {
     }, new Map<string, TreeItem[]>());
   }, [treeItems]);
 
+  const selectableChildren = useCallback(
+    (item: TreeItem) => {
+      if (item.type !== 'folder') {
+        return [];
+      }
+      return (childrenByFolder.get(item.id) ?? []).filter((child) =>
+        isItemSelectable(child, permissions),
+      );
+    },
+    [childrenByFolder, permissions],
+  );
+
   const toggleItemSelection = useCallback(
     (item: TreeItem) => {
+      if (!isItemSelectable(item, permissions)) {
+        return;
+      }
       const key = getItemKey(item);
       setSelectedItems((prev) => {
         const next = new Map(prev);
 
         if (item.type === 'folder') {
-          const children = childrenByFolder.get(item.id) ?? [];
+          const children = selectableChildren(item);
           if (next.has(key)) {
             next.delete(key);
             children.forEach((child) => next.delete(getItemKey(child)));
           } else {
             next.set(key, 'folder');
             children.forEach((child) =>
-              next.set(getItemKey(child), child.type as SelectableItemType),
+              next.set(
+                getItemKey(child),
+                child.type as SelectableItemType,
+              ),
             );
           }
         } else {
@@ -48,7 +73,10 @@ export function useAutomationsSelection(treeItems: TreeItem[]) {
           } else {
             next.set(key, itemType);
             if (item.folderId) {
-              const siblings = childrenByFolder.get(item.folderId) ?? [];
+              const siblings = selectableChildren({
+                type: 'folder',
+                id: item.folderId,
+              } as TreeItem);
               const allSelected = siblings.every(
                 (s) => getItemKey(s) === key || next.has(getItemKey(s)),
               );
@@ -65,12 +93,17 @@ export function useAutomationsSelection(treeItems: TreeItem[]) {
         return next;
       });
     },
-    [childrenByFolder],
+    [permissions, selectableChildren],
   );
 
   const selectableItems = useMemo(
-    () => treeItems.filter((item) => item.type !== 'load-more-folder'),
-    [treeItems],
+    () =>
+      treeItems.filter(
+        (item) =>
+          item.type !== 'load-more-folder' &&
+          isItemSelectable(item, permissions),
+      ),
+    [treeItems, permissions],
   );
 
   const toggleAllSelection = useCallback(() => {

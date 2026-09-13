@@ -1,4 +1,9 @@
-import { FolderDto, PopulatedFlow, Table } from '@activepieces/shared';
+import {
+  FolderDto,
+  PopulatedFlow,
+  RecentRunStatus,
+  Table,
+} from '@activepieces/shared';
 
 export type TreeItemType = 'folder' | 'flow' | 'table' | 'load-more-folder';
 
@@ -24,6 +29,9 @@ export type AutomationsFilters = {
   connectionFilter: string[];
   ownerFilter: string[];
   folderFilter: string[];
+  recentRunStatusFilter: RecentRunStatus[];
+  runAfter: string | null;
+  runBefore: string | null;
 };
 
 export type FolderContent = {

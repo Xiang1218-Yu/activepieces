@@ -76,6 +76,7 @@ type AutomationsTableRowProps = {
   isMoving: boolean;
   isDuplicating: boolean;
   onLoadMore?: () => void;
+  isSelectable?: boolean;
 };
 
 export const AutomationsTableRow = ({
@@ -100,6 +101,7 @@ export const AutomationsTableRow = ({
   isMoving,
   isDuplicating,
   onLoadMore,
+  isSelectable = true,
 }: AutomationsTableRowProps) => {
   const { embedState } = useEmbedding();
   const [isMoveOpen, setIsMoveOpen] = useState(false);
@@ -131,7 +133,9 @@ export const AutomationsTableRow = ({
         className="w-10 shrink-0 pl-4 pr-1 flex items-center"
         onClick={(e) => e.stopPropagation()}
       >
-        <Checkbox checked={isSelected} onCheckedChange={onToggleSelection} />
+        {isSelectable && (
+          <Checkbox checked={isSelected} onCheckedChange={onToggleSelection} />
+        )}
       </div>
       <div
         className={cn(

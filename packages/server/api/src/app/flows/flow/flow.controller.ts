@@ -111,6 +111,10 @@ export const flowController: FastifyPluginAsyncZod = async (app) => {
             externalIds: request.query.externalIds,
             connectionExternalIds: request.query.connectionExternalIds,
             agentExternalIds: request.query.agentExternalIds,
+            ownerIds: request.query.ownerIds,
+            recentRunStatus: request.query.recentRunStatus,
+            runAfter: request.query.runAfter,
+            runBefore: request.query.runBefore,
             sortBy: request.query.sortBy,
             order: request.query.order,
         })

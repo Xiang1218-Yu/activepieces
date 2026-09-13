@@ -4,6 +4,14 @@ import { Cursor } from '@activepieces/core-utils'
 import { FlowStatus } from '../flow'
 import { FlowVersionState } from '../flow-version'
 
+export enum RecentRunStatus {
+    SUCCEEDED = 'SUCCEEDED',
+    FAILED = 'FAILED',
+    RUNNING = 'RUNNING',
+    PAUSED = 'PAUSED',
+    NEVER_RUN = 'NEVER_RUN',
+}
+
 export const ListFlowsRequest = z.object({
     folderId: z.string().optional(),
     folderIds: OptionalArrayFromQuery(z.string()),
@@ -16,6 +24,10 @@ export const ListFlowsRequest = z.object({
     versionState: z.nativeEnum(FlowVersionState).optional(),
     connectionExternalIds: OptionalArrayFromQuery(z.string()),
     externalIds: OptionalArrayFromQuery(z.string()),
+    ownerIds: OptionalArrayFromQuery(z.string()),
+    recentRunStatus: OptionalArrayFromQuery(z.nativeEnum(RecentRunStatus)),
+    runAfter: z.string().optional(),
+    runBefore: z.string().optional(),
     sortBy: z.enum(['NAME']).optional(),
     order: z.enum(['ASC', 'DESC']).optional(),
 })

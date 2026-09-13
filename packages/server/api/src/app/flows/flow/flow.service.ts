@@ -1,9 +1,9 @@
 import { ActivepiecesError, apId, assertNotNullOrUndefined, Cursor, ErrorCode, FlowId, FlowVersionId, isNil, Metadata, PlatformId, ProjectId, SeekPage, tryCatch, UserId } from '@activepieces/core-utils'
 import { apDayjs, apDayjsDuration } from '@activepieces/server-utils'
-import { CreateFlowRequest, Flow, FlowCreator, FlowOperationRequest, FlowOperationStatus, FlowOperationType, flowPieceUtil, FlowStatus, FlowTriggerType, FlowVersion, FlowVersionState, PopulatedFlow, SharedTemplate, TelemetryEventName, TemplateStatus, TemplateType, TriggerSource, UncategorizedFolderId, UserWithMetaInformation } from '@activepieces/shared'
+import { CreateFlowRequest, Flow, FlowCreator, FlowOperationRequest, FlowOperationStatus, FlowOperationType, flowPieceUtil, FlowRunStatus, FlowStatus, FlowTriggerType, FlowVersion, FlowVersionState, PopulatedFlow, RecentRunStatus, RunEnvironment, SharedTemplate, TelemetryEventName, TemplateStatus, TemplateType, TriggerSource, UncategorizedFolderId, UserWithMetaInformation } from '@activepieces/shared'
 import dayjs from 'dayjs'
 import { FastifyBaseLogger } from 'fastify'
-import { EntityManager, In, IsNull, Not } from 'typeorm'
+import { EntityManager, In, IsNull, Not, ObjectLiteral, SelectQueryBuilder } from 'typeorm'
 import { transaction } from '../../core/db/transaction'
 import { distributedLock } from '../../database/redis-connections'
 import { buildPaginator } from '../../helper/pagination/build-paginator'
@@ -100,6 +100,10 @@ export const flowService = (log: FastifyBaseLogger) => ({
         connectionExternalIds,
         agentExternalIds,
         externalIds,
+        ownerIds,
+        recentRunStatus,
+        runAfter,
+        runBefore,
         versionState = FlowVersionState.DRAFT,
         includeTriggerSource = true,
         sortBy,
@@ -142,6 +146,10 @@ export const flowService = (log: FastifyBaseLogger) => ({
 
         if (status !== undefined) {
             queryBuilder.andWhere({ status: In(status) })
+        }
+
+        if (ownerIds !== undefined && ownerIds.length > 0) {
+            queryBuilder.andWhere({ ownerId: In(ownerIds) })
         }
 
         const latestVersionSubquery = flowVersionRepo()
@@ -196,6 +204,24 @@ export const flowService = (log: FastifyBaseLogger) => ({
 
         if (agentExternalIds !== undefined) {
             queryBuilder.andWhere('latest_version."agentIds" && :agentExternalIds', { agentExternalIds })
+        }
+
+        if (recentRunStatus !== undefined && recentRunStatus.length > 0) {
+            applyRecentRunStatusFilter({
+                queryBuilder,
+                recentRunStatus,
+                runAfter,
+                runBefore,
+            })
+        }
+        else if (runAfter !== undefined || runBefore !== undefined) {
+            const { sql, params } = buildRunExistsCondition({
+                statuses: null,
+                runAfter,
+                runBefore,
+                suffix: 'window',
+            })
+            queryBuilder.andWhere(sql, params)
         }
 
         if (!isNil(sortBy)) {
@@ -858,6 +884,149 @@ function assertSortIsNotCombinedWithCursor({ sortBy, cursor }: { sortBy: 'NAME' 
     })
 }
 
+type RecentRunFilterInput = {
+    recentRunStatus: RecentRunStatus[]
+    runAfter?: string
+    runBefore?: string
+}
+
+function applyRecentRunStatusFilter<T extends ObjectLiteral>({ queryBuilder, recentRunStatus, runAfter, runBefore }: {
+    queryBuilder: SelectQueryBuilder<T>
+} & RecentRunFilterInput): void {
+    recentRunStatus.forEach((selected, index) => {
+        const { sql, params } = buildRecentRunStatusCondition({
+            selected,
+            runAfter,
+            runBefore,
+            suffix: String(index),
+        })
+        queryBuilder.andWhere(sql, params)
+    })
+}
+
+function buildRecentRunStatusCondition({ selected, runAfter, runBefore, suffix }: {
+    selected: RecentRunStatus
+    runAfter?: string
+    runBefore?: string
+    suffix: string
+}): { sql: string; params: Record<string, unknown> } {
+    switch (selected) {
+        case RecentRunStatus.NEVER_RUN: {
+            const exists = buildRunExistsCondition({
+                statuses: null,
+                runAfter,
+                runBefore,
+                suffix,
+            })
+            return { sql: `NOT ${exists.sql}`, params: exists.params }
+        }
+        case RecentRunStatus.SUCCEEDED:
+            return buildRunExistsCondition({
+                statuses: [FlowRunStatus.SUCCEEDED],
+                runAfter,
+                runBefore,
+                suffix,
+            })
+        case RecentRunStatus.RUNNING:
+            return buildRunExistsCondition({
+                statuses: [FlowRunStatus.RUNNING, FlowRunStatus.QUEUED],
+                runAfter,
+                runBefore,
+                suffix,
+            })
+        case RecentRunStatus.PAUSED:
+            return buildRunExistsCondition({
+                statuses: [FlowRunStatus.PAUSED],
+                runAfter,
+                runBefore,
+                suffix,
+            })
+        case RecentRunStatus.FAILED:
+            if (runAfter === undefined && runBefore === undefined) {
+                return buildLatestRunIsFailureCondition(suffix)
+            }
+            return buildRunExistsCondition({
+                statuses: RECENT_RUN_FAILED_STATUSES,
+                runAfter,
+                runBefore,
+                suffix,
+            })
+    }
+}
+
+function buildRunExistsCondition({ statuses, runAfter, runBefore, suffix }: {
+    statuses: FlowRunStatus[] | null
+    runAfter?: string
+    runBefore?: string
+    suffix: string
+}): { sql: string; params: Record<string, unknown> } {
+    const envParam = `runEnv_${suffix}`
+    const clauses = [
+        'fr."flowId" = ff.id',
+        'fr."projectId" = ff."projectId"',
+        `fr.environment = :${envParam}`,
+        'fr."archivedAt" IS NULL',
+    ]
+    const params: Record<string, unknown> = { [envParam]: RunEnvironment.PRODUCTION }
+    if (statuses !== null) {
+        const statusesParam = `runStatuses_${suffix}`
+        clauses.push(`fr.status IN (:...${statusesParam})`)
+        params[statusesParam] = statuses
+    }
+    if (runAfter !== undefined) {
+        const afterParam = `runAfter_${suffix}`
+        clauses.push(`fr.created >= :${afterParam}`)
+        params[afterParam] = runAfter
+    }
+    if (runBefore !== undefined) {
+        const beforeParam = `runBefore_${suffix}`
+        clauses.push(`fr.created < :${beforeParam}`)
+        params[beforeParam] = runBefore
+    }
+    return {
+        sql: `EXISTS (SELECT 1 FROM flow_run fr WHERE ${clauses.join(' AND ')})`,
+        params,
+    }
+}
+
+function buildLatestRunIsFailureCondition(suffix: string): { sql: string; params: Record<string, unknown> } {
+    const envParam = `runEnv_${suffix}`
+    const statusesParam = `runStatuses_${suffix}`
+    return {
+        sql: `EXISTS (
+            SELECT 1
+            FROM flow_run fr_latest
+            WHERE fr_latest."flowId" = ff.id
+              AND fr_latest."projectId" = ff."projectId"
+              AND fr_latest.environment = :${envParam}
+              AND fr_latest."archivedAt" IS NULL
+              AND fr_latest.created = (
+                  SELECT MAX(fr_max.created)
+                  FROM flow_run fr_max
+                  WHERE fr_max."flowId" = ff.id
+                    AND fr_max."projectId" = ff."projectId"
+                    AND fr_max.environment = :${envParam}
+                    AND fr_max."archivedAt" IS NULL
+              )
+              AND fr_latest.status IN (:...${statusesParam})
+        )`,
+        params: {
+            [envParam]: RunEnvironment.PRODUCTION,
+            [statusesParam]: RECENT_RUN_FAILED_STATUSES,
+        },
+    }
+}
+
+const RECENT_RUN_FAILED_STATUSES: FlowRunStatus[] = [
+    FlowRunStatus.FAILED,
+    FlowRunStatus.QUOTA_EXCEEDED,
+    FlowRunStatus.INTERNAL_ERROR,
+    FlowRunStatus.MEMORY_LIMIT_EXCEEDED,
+    FlowRunStatus.TIMEOUT,
+    FlowRunStatus.LOG_SIZE_EXCEEDED,
+]
+
+
 async function assertExternalIdIsUnique({ projectId, externalId }: { projectId: ProjectId, externalId: string | undefined }): Promise<void> {
     if (isNil(externalId)) {
         return
@@ -891,6 +1060,10 @@ type ListParamsBase = {
     externalIds?: string[]
     connectionExternalIds?: string[]
     agentExternalIds?: string[]
+    ownerIds?: string[]
+    recentRunStatus?: RecentRunStatus[]
+    runAfter?: string
+    runBefore?: string
     includeTriggerSource?: boolean
     sortBy?: 'NAME'
     order?: 'ASC' | 'DESC'

@@ -1,6 +1,7 @@
 import { WebhookRenewStrategy } from '@activepieces/pieces-framework'
 import {
     FlowOperationType,
+    FlowRunStatus,
     FlowStatus,
     FlowTriggerType,
     FlowVersionState,
@@ -9,6 +10,8 @@ import {
     PopulatedFlow,
     PrincipalType,
     PropertyExecutionType,
+    RecentRunStatus,
+    RunEnvironment,
     TriggerStrategy,
     TriggerTestStrategy,
     WebhookHandshakeStrategy,
@@ -20,6 +23,7 @@ import { generateMockToken } from '../../../../helpers/auth'
 import { db } from '../../../../helpers/db'
 import {
     createMockFlow,
+    createMockFlowRun,
     createMockFlowVersion,
     createMockPieceMetadata,
 } from '../../../../helpers/mocks'
@@ -501,6 +505,130 @@ describe('Flow API', () => {
                 disabledNewest.id,
             ])
         })
+
+        it('Lists only flows whose latest production run failed', async () => {
+            const ctx = await createTestContext(app!)
+
+            const failedFlow = await seedFlowWithVersion(ctx.project.id, 'failed flow')
+            const recoveredFlow = await seedFlowWithVersion(ctx.project.id, 'recovered flow')
+            await seedFlowWithVersion(ctx.project.id, 'never run flow')
+
+            await db.save('flow_run', [
+                createMockFlowRun({
+                    projectId: ctx.project.id,
+                    flowId: failedFlow.id,
+                    flowVersionId: failedFlow.versionId,
+                    status: FlowRunStatus.FAILED,
+                    environment: RunEnvironment.PRODUCTION,
+                    created: dayjs().subtract(2, 'hour').toISOString(),
+                }),
+                createMockFlowRun({
+                    projectId: ctx.project.id,
+                    flowId: recoveredFlow.id,
+                    flowVersionId: recoveredFlow.versionId,
+                    status: FlowRunStatus.FAILED,
+                    environment: RunEnvironment.PRODUCTION,
+                    created: dayjs().subtract(3, 'hour').toISOString(),
+                }),
+                createMockFlowRun({
+                    projectId: ctx.project.id,
+                    flowId: recoveredFlow.id,
+                    flowVersionId: recoveredFlow.versionId,
+                    status: FlowRunStatus.SUCCEEDED,
+                    environment: RunEnvironment.PRODUCTION,
+                    created: dayjs().subtract(1, 'hour').toISOString(),
+                }),
+            ])
+
+            const response = await ctx.get('/v1/flows', {
+                projectId: ctx.project.id,
+                recentRunStatus: RecentRunStatus.FAILED,
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            const responseBody = response?.json()
+            expect(responseBody.data.map((flow: PopulatedFlow) => flow.id)).toEqual([failedFlow.id])
+        })
+
+        it('Lists flows with a run inside the given time window', async () => {
+            const ctx = await createTestContext(app!)
+
+            const recentFlow = await seedFlowWithVersion(ctx.project.id, 'recent flow')
+            const oldFlow = await seedFlowWithVersion(ctx.project.id, 'old flow')
+
+            await db.save('flow_run', [
+                createMockFlowRun({
+                    projectId: ctx.project.id,
+                    flowId: recentFlow.id,
+                    flowVersionId: recentFlow.versionId,
+                    status: FlowRunStatus.SUCCEEDED,
+                    environment: RunEnvironment.PRODUCTION,
+                    created: dayjs().subtract(1, 'hour').toISOString(),
+                }),
+                createMockFlowRun({
+                    projectId: ctx.project.id,
+                    flowId: oldFlow.id,
+                    flowVersionId: oldFlow.versionId,
+                    status: FlowRunStatus.SUCCEEDED,
+                    environment: RunEnvironment.PRODUCTION,
+                    created: dayjs().subtract(10, 'day').toISOString(),
+                }),
+            ])
+
+            const response = await ctx.get('/v1/flows', {
+                projectId: ctx.project.id,
+                runAfter: dayjs().subtract(2, 'day').toISOString(),
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            const responseBody = response?.json()
+            expect(responseBody.data.map((flow: PopulatedFlow) => flow.id)).toEqual([recentFlow.id])
+        })
+
+        it('Lists only flows that never ran', async () => {
+            const ctx = await createTestContext(app!)
+
+            const ranFlow = await seedFlowWithVersion(ctx.project.id, 'ran flow')
+            const neverRanFlow = await seedFlowWithVersion(ctx.project.id, 'never ran flow')
+
+            await db.save('flow_run', createMockFlowRun({
+                projectId: ctx.project.id,
+                flowId: ranFlow.id,
+                flowVersionId: ranFlow.versionId,
+                status: FlowRunStatus.SUCCEEDED,
+                environment: RunEnvironment.PRODUCTION,
+            }))
+
+            const response = await ctx.get('/v1/flows', {
+                projectId: ctx.project.id,
+                recentRunStatus: RecentRunStatus.NEVER_RUN,
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            const responseBody = response?.json()
+            expect(responseBody.data.map((flow: PopulatedFlow) => flow.id)).toEqual([neverRanFlow.id])
+        })
+
+        it('Filters flows by owner', async () => {
+            const ctx = await createTestContext(app!)
+
+            const ownedFlow = createMockFlow({ projectId: ctx.project.id, ownerId: ctx.user.id })
+            const unownedFlow = createMockFlow({ projectId: ctx.project.id, ownerId: null })
+            await db.save('flow', [ownedFlow, unownedFlow])
+            await db.save('flow_version', [
+                createMockFlowVersion({ flowId: ownedFlow.id }),
+                createMockFlowVersion({ flowId: unownedFlow.id }),
+            ])
+
+            const response = await ctx.get('/v1/flows', {
+                projectId: ctx.project.id,
+                ownerIds: ctx.user.id,
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            const responseBody = response?.json()
+            expect(responseBody.data.map((flow: PopulatedFlow) => flow.id)).toEqual([ownedFlow.id])
+        })
     })
 
     describe('Update Metadata endpoint', () => {
@@ -579,4 +707,12 @@ async function seedFlowsNamed({ projectId, displayNames }: { projectId: string, 
         flowId: flow.id,
         displayName: displayNames[index],
     })))
+}
+
+async function seedFlowWithVersion(projectId: string, displayName: string): Promise<{ id: string, versionId: string }> {
+    const flow = createMockFlow({ projectId })
+    await db.save('flow', flow)
+    const version = createMockFlowVersion({ flowId: flow.id, displayName })
+    await db.save('flow_version', version)
+    return { id: flow.id, versionId: version.id }
 }

@@ -1,7 +1,7 @@
 import { Permission } from '@activepieces/core-utils';
 import { UncategorizedFolderId } from '@activepieces/shared';
 import { t } from 'i18next';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { recordAccess } from '@/app/components/global-search/access-history';
@@ -22,12 +22,16 @@ import { useAutomationsDialogs } from '@/features/automations/hooks/use-automati
 import { useAutomationsFilters } from '@/features/automations/hooks/use-automations-filters';
 import { useAutomationsMutations } from '@/features/automations/hooks/use-automations-mutations';
 import {
-  useAutomationsSelection,
   hasMovableOrExportableItems,
+  useAutomationsSelection,
 } from '@/features/automations/hooks/use-automations-selection';
 import { usePinnedItems } from '@/features/automations/hooks/use-pinned-items';
+import { useProjectHasAutomations } from '@/features/automations/hooks/use-project-has-automations';
 import { AutomationsSort, TreeItem } from '@/features/automations/lib/types';
-import { ROOT_ITEMS_LIMIT } from '@/features/automations/lib/utils';
+import {
+  hasConflictingFilters,
+  ROOT_ITEMS_LIMIT,
+} from '@/features/automations/lib/utils';
 import { appConnectionsQueries } from '@/features/connections';
 import { ImportFlowDialog } from '@/features/flows/components/import-flow-dialog';
 import { projectMembersHooks } from '@/features/members';
@@ -73,6 +77,11 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
     setOwnerFilter,
     folderFilter,
     setFolderFilter,
+    recentRunStatusFilter,
+    setRecentRunStatusFilter,
+    runAfter,
+    runBefore,
+    setRunRange,
     sort,
     setSort,
     filters,
@@ -113,14 +122,26 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
     [expandedFolders, toggleFolder],
   );
 
+  const selectionPermissions = useMemo(
+    () => ({
+      canWriteFlow: userHasPermissionToWriteFlow,
+      canWriteTable: userHasPermissionToWriteTable,
+      canWriteFolder: userHasPermissionToWriteFolder,
+    }),
+    [
+      userHasPermissionToWriteFlow,
+      userHasPermissionToWriteTable,
+      userHasPermissionToWriteFolder,
+    ],
+  );
+
   const {
     selectedItems,
     toggleItemSelection,
     toggleAllSelection,
     clearSelection,
     isItemSelected,
-    selectableItems,
-  } = useAutomationsSelection(treeItems);
+  } = useAutomationsSelection(treeItems, selectionPermissions);
 
   const mutations = useAutomationsMutations({
     invalidateAll,
@@ -289,6 +310,17 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
     !hasAnyItems && !isLoading && !filtersActive && !isErrorState;
   const isNoResultsState =
     treeItems.length === 0 && filtersActive && !isLoading && !isErrorState;
+  const isFilterConflict = hasConflictingFilters(filters);
+  const { hasAutomations, isLoading: isProbeLoading } =
+    useProjectHasAutomations(isNoResultsState && !isFilterConflict);
+  const noResultsVariant = isFilterConflict
+    ? 'conflict'
+    : hasAutomations
+      ? 'no-match'
+      : 'empty-project';
+  const showNoResultsState =
+    isNoResultsState &&
+    (isFilterConflict || !isProbeLoading);
 
   if (isEmptyState) {
     return <AutomationsEmptyState onRefresh={() => invalidateAll()} />;
@@ -309,6 +341,11 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
         onOwnerFilterChange={setOwnerFilter}
         folderFilter={folderFilter}
         onFolderFilterChange={setFolderFilter}
+        recentRunStatusFilter={recentRunStatusFilter}
+        onRecentRunStatusFilterChange={setRecentRunStatusFilter}
+        runAfter={runAfter}
+        runBefore={runBefore}
+        onRunRangeChange={setRunRange}
         onFilterChange={handleFiltersChange}
         folders={folders}
         connections={connections?.data}
@@ -339,8 +376,11 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
           onRetry={invalidateAll}
           className="py-16"
         />
-      ) : isNoResultsState ? (
-        <AutomationsNoResultsState onClearFilters={clearAllFilters} />
+      ) : showNoResultsState ? (
+        <AutomationsNoResultsState
+          variant={noResultsVariant}
+          onClearFilters={clearAllFilters}
+        />
       ) : (
         <>
           <AutomationsTable
@@ -350,7 +390,6 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
             expandedFolders={expandedFolders}
             projectMembers={projectMembers}
             folders={folders}
-            selectableCount={selectableItems.length}
             isPinned={isPinned}
             onTogglePin={togglePin}
             onToggleAllSelection={toggleAllSelection}
@@ -365,6 +404,7 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
             onCreateInFolder={handleCreateInFolder}
             userHasPermissionToWriteFlow={userHasPermissionToWriteFlow}
             userHasPermissionToWriteTable={userHasPermissionToWriteTable}
+            userHasPermissionToWriteFolder={userHasPermissionToWriteFolder}
             isCreatingFlow={mutations.isCreateFlowPending}
             isCreatingTable={mutations.isCreatingTable}
             isMoving={mutations.isMoving}

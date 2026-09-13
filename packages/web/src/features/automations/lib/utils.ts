@@ -175,7 +175,12 @@ export function buildTreeItems({
   });
 
   const totalRootItems = allTopLevel.length;
-  const start = rootPage * pageSize;
+  const safePage = clampPage({
+    page: rootPage,
+    totalItems: totalRootItems,
+    pageSize,
+  });
+  const start = safePage * pageSize;
   const pageItems = allTopLevel.slice(start, start + pageSize);
 
   const result: TreeItem[] = [];
@@ -348,7 +353,8 @@ export function buildFilteredTreeItems({
   });
 
   const totalItems = allTopLevel.length;
-  const start = page * pageSize;
+  const safePage = clampPage({ page, totalItems, pageSize });
+  const start = safePage * pageSize;
   const pageTopLevel = allTopLevel.slice(start, start + pageSize);
 
   const result: TreeItem[] = [];
@@ -384,7 +390,10 @@ export function hasActiveFilters(filters: AutomationsFilters): boolean {
     filters.statusFilter.length > 0 ||
     filters.connectionFilter.length > 0 ||
     filters.ownerFilter.length > 0 ||
-    filters.folderFilter.length > 0
+    filters.folderFilter.length > 0 ||
+    filters.recentRunStatusFilter.length > 0 ||
+    filters.runAfter !== null ||
+    filters.runBefore !== null
   );
 }
 
@@ -394,12 +403,42 @@ export function hasNonFolderFilters(filters: AutomationsFilters): boolean {
     filters.typeFilter.length > 0 ||
     filters.statusFilter.length > 0 ||
     filters.connectionFilter.length > 0 ||
-    filters.ownerFilter.length > 0
+    filters.ownerFilter.length > 0 ||
+    filters.recentRunStatusFilter.length > 0 ||
+    filters.runAfter !== null ||
+    filters.runBefore !== null
   );
+}
+
+export function hasRunFilters(filters: AutomationsFilters): boolean {
+  return (
+    filters.recentRunStatusFilter.length > 0 ||
+    filters.runAfter !== null ||
+    filters.runBefore !== null
+  );
+}
+
+export function hasConflictingFilters(filters: AutomationsFilters): boolean {
+  const tablesOnly =
+    filters.typeFilter.length === 1 && filters.typeFilter[0] === 'table';
+  return tablesOnly && hasRunFilters(filters);
 }
 
 export function getItemKey(item: TreeItem): string {
   return `${item.type}-${item.id}`;
+}
+
+function clampPage({
+  page,
+  totalItems,
+  pageSize,
+}: {
+  page: number;
+  totalItems: number;
+  pageSize: number;
+}): number {
+  const lastPage = Math.max(0, Math.ceil(totalItems / pageSize) - 1);
+  return Math.min(page, lastPage);
 }
 
 export function nextSort(sort: AutomationsSort): AutomationsSort {

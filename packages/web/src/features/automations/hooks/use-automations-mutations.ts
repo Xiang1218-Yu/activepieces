@@ -102,12 +102,19 @@ export function useAutomationsMutations(deps: MutationDeps) {
 
   const { mutateAsync: bulkDelete, isPending: isDeleting } = useMutation({
     mutationFn: async (selectedItems: SelectedItemsMap) => {
+      const visibleIds = buildVisibleItemIds(deps.treeItems);
       const { flowIds, tableIds, folderIds } =
         getSelectedIdsByType(selectedItems);
       await Promise.all([
-        ...flowIds.map((id) => flowsApi.delete(id)),
-        ...tableIds.map((id) => tablesApi.delete(id)),
-        ...folderIds.map((id) => foldersApi.delete(id)),
+        ...flowIds
+          .filter((id) => visibleIds.flows.has(id))
+          .map((id) => flowsApi.delete(id)),
+        ...tableIds
+          .filter((id) => visibleIds.tables.has(id))
+          .map((id) => tablesApi.delete(id)),
+        ...folderIds
+          .filter((id) => visibleIds.folders.has(id))
+          .map((id) => foldersApi.delete(id)),
       ]);
     },
     onSuccess: () => {
@@ -127,18 +134,23 @@ export function useAutomationsMutations(deps: MutationDeps) {
       targetFolderId: string;
     }) => {
       const { flowIds, tableIds } = getSelectedIdsByType(selectedItems);
+      const visibleIds = buildVisibleItemIds(deps.treeItems);
       const folderId =
         isNil(targetFolderId) || targetFolderId === UncategorizedFolderId
           ? null
           : targetFolderId;
       await Promise.all([
-        ...flowIds.map((id) =>
-          flowsApi.update(id, {
-            type: FlowOperationType.CHANGE_FOLDER,
-            request: { folderId },
-          }),
-        ),
-        ...tableIds.map((id) => tablesApi.update(id, { folderId })),
+        ...flowIds
+          .filter((id) => visibleIds.flows.has(id))
+          .map((id) =>
+            flowsApi.update(id, {
+              type: FlowOperationType.CHANGE_FOLDER,
+              request: { folderId },
+            }),
+          ),
+        ...tableIds
+          .filter((id) => visibleIds.tables.has(id))
+          .map((id) => tablesApi.update(id, { folderId })),
       ]);
     },
     onSuccess: (_data, { selectedItems, targetFolderId }) => {
@@ -249,6 +261,7 @@ export function useAutomationsMutations(deps: MutationDeps) {
 
   const handleBulkExport = useCallback(
     (selectedItems: SelectedItemsMap) => {
+      const visibleIds = buildVisibleItemIds(deps.treeItems);
       const { flowIds, tableIds } = getSelectedIdsByType(selectedItems);
 
       if (flowIds.length > 0) {
@@ -258,6 +271,7 @@ export function useAutomationsMutations(deps: MutationDeps) {
             .map((item) => [item.id, item.data]),
         );
         const flowsToExport = flowIds
+          .filter((id) => visibleIds.flows.has(id))
           .map((id) => flowsById.get(id))
           .filter((flow): flow is PopulatedFlow => !isNil(flow));
         if (flowsToExport.length > 0) {
@@ -266,8 +280,12 @@ export function useAutomationsMutations(deps: MutationDeps) {
       }
 
       if (tableIds.length > 0) {
-        const tables = tableIds.map((id) => ({ id } as Table));
-        Promise.all(tables.map((tbl) => tablesApi.export(tbl.id)))
+        const visibleTableIds = tableIds.filter((id) =>
+          visibleIds.tables.has(id),
+        );
+        Promise.all(
+          visibleTableIds.map((id) => tablesApi.export(id)),
+        )
           .then((exported) => {
             tablesUtils.exportTables(exported);
             toast.success(
@@ -323,4 +341,30 @@ function isFlowTreeItem(
   item: TreeItem,
 ): item is TreeItem & { data: PopulatedFlow } {
   return item.type === 'flow' && !isNil(item.data);
+}
+
+function buildVisibleItemIds(treeItems: TreeItem[]): {
+  flows: Set<string>;
+  tables: Set<string>;
+  folders: Set<string>;
+} {
+  const visibleIds = {
+    flows: new Set<string>(),
+    tables: new Set<string>(),
+    folders: new Set<string>(),
+  };
+  for (const item of treeItems) {
+    switch (item.type) {
+      case 'flow':
+        visibleIds.flows.add(item.id);
+        break;
+      case 'table':
+        visibleIds.tables.add(item.id);
+        break;
+      case 'folder':
+        visibleIds.folders.add(item.id);
+        break;
+    }
+  }
+  return visibleIds;
 }

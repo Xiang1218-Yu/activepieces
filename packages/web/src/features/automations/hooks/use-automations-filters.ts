@@ -2,6 +2,8 @@ import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useDebouncedCallback } from 'use-debounce';
 
+import { RecentRunStatus } from '@activepieces/shared';
+
 import { AutomationsFilters, AutomationsSort } from '../lib/types';
 import { hasActiveFilters } from '../lib/utils';
 
@@ -11,6 +13,9 @@ const STATUS_PARAM = 'status';
 const CONNECTION_PARAM = 'connection';
 const OWNER_PARAM = 'owner';
 const FOLDER_PARAM = 'folder';
+const RECENT_RUN_STATUS_PARAM = 'lastRun';
+const RUN_AFTER_PARAM = 'runAfter';
+const RUN_BEFORE_PARAM = 'runBefore';
 const SORT_PARAM = 'sort';
 
 const FILTER_PARAMS = [
@@ -20,7 +25,16 @@ const FILTER_PARAMS = [
   CONNECTION_PARAM,
   OWNER_PARAM,
   FOLDER_PARAM,
+  RECENT_RUN_STATUS_PARAM,
+  RUN_AFTER_PARAM,
+  RUN_BEFORE_PARAM,
 ] as const;
+
+const RECENT_RUN_STATUSES = new Set<string>(Object.values(RecentRunStatus));
+
+function isRecentRunStatus(value: string): value is RecentRunStatus {
+  return RECENT_RUN_STATUSES.has(value);
+}
 
 export function useAutomationsFilters() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -48,6 +62,20 @@ export function useAutomationsFilters() {
     () => searchParams.getAll(FOLDER_PARAM),
     [folderParamStr],
   );
+  const recentRunStatusParamStr = searchParams
+    .getAll(RECENT_RUN_STATUS_PARAM)
+    .join('\0');
+  const recentRunStatusFilter = useMemo(
+    () =>
+      recentRunStatusParamStr
+        .split('\0')
+        .filter(isRecentRunStatus),
+    [recentRunStatusParamStr],
+  );
+  const runAfterParam = searchParams.get(RUN_AFTER_PARAM);
+  const runBeforeParam = searchParams.get(RUN_BEFORE_PARAM);
+  const runAfter = parseDateParam(runAfterParam);
+  const runBefore = parseDateParam(runBeforeParam);
   const sort = parseSort(searchParams.get(SORT_PARAM));
 
   const updateParams = useCallback(
@@ -124,6 +152,25 @@ export function useAutomationsFilters() {
     [updateParams],
   );
 
+  const setRecentRunStatusFilter = useCallback(
+    (value: RecentRunStatus[]) => {
+      updateParams({
+        [RECENT_RUN_STATUS_PARAM]: value.length > 0 ? value : null,
+      });
+    },
+    [updateParams],
+  );
+
+  const setRunRange = useCallback(
+    (range: { runAfter: string | null; runBefore: string | null }) => {
+      updateParams({
+        [RUN_AFTER_PARAM]: range.runAfter,
+        [RUN_BEFORE_PARAM]: range.runBefore,
+      });
+    },
+    [updateParams],
+  );
+
   const setSort = useCallback(
     (value: AutomationsSort) => {
       updateParams({ [SORT_PARAM]: value === 'default' ? null : value });
@@ -138,6 +185,9 @@ export function useAutomationsFilters() {
     connectionFilter,
     ownerFilter,
     folderFilter,
+    recentRunStatusFilter,
+    runAfter,
+    runBefore,
   };
 
   const filtersActive = hasActiveFilters(filters);
@@ -165,6 +215,11 @@ export function useAutomationsFilters() {
     setOwnerFilter,
     folderFilter,
     setFolderFilter,
+    recentRunStatusFilter,
+    setRecentRunStatusFilter,
+    runAfter,
+    runBefore,
+    setRunRange,
     sort,
     setSort,
     filters,
@@ -181,4 +236,12 @@ function parseSort(value: string | null): AutomationsSort {
     default:
       return 'default';
   }
+}
+
+function parseDateParam(value: string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : value;
 }
