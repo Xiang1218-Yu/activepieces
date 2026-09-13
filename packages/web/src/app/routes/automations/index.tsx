@@ -91,6 +91,7 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
 
   const {
     treeItems,
+    knownItems,
     folders,
     rootFlows,
     rootTables,
@@ -128,7 +129,10 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
     removeSelectedKeys,
     isItemSelected,
     selectableItems,
-  } = useAutomationsSelection(treeItems);
+  } = useAutomationsSelection({
+    visibleItems: treeItems,
+    knownItems,
+  });
 
   const handleBulkMoveComplete = useCallback(
     (result: BulkMoveResult) => {
@@ -137,9 +141,8 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
           new Set(result.moved.map((item) => `${item.type}-${item.id}`)),
         );
       }
-      void invalidateAll();
     },
-    [removeSelectedKeys, invalidateAll],
+    [removeSelectedKeys],
   );
 
   const mutations = useAutomationsMutations({
@@ -147,7 +150,7 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
     invalidateRoot,
     invalidateFolder,
     clearSelection,
-    treeItems,
+    treeItems: knownItems,
     folderIds: folders.map((folder) => folder.id),
     unpinItem,
     onBulkMoveComplete: handleBulkMoveComplete,
@@ -163,10 +166,6 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
   const { projectMembers } = projectMembersHooks.useProjectMembers();
   const { pieces } = piecesHooks.usePieces({});
 
-  // Bulk actions resolve selected items from the loaded treeItems, so the
-  // selection must never outlive the view that produced it. Clearing it on
-  // every view change (filtering, paging, collapsing a folder) keeps the
-  // selection a subset of what is currently loaded.
   const handleFiltersChange = useCallback(() => {
     clearSelection();
     resetPagination();
@@ -175,35 +174,29 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
   const handleSortChange = useCallback(
     (next: AutomationsSort) => {
       setSort(next);
-      handleFiltersChange();
+      resetPagination();
     },
-    [setSort, handleFiltersChange],
+    [setSort, resetPagination],
   );
 
   const handleNextPage = useCallback(() => {
-    clearSelection();
     nextRootPage();
-  }, [clearSelection, nextRootPage]);
+  }, [nextRootPage]);
 
   const handlePrevPage = useCallback(() => {
-    clearSelection();
     prevRootPage();
-  }, [clearSelection, prevRootPage]);
+  }, [prevRootPage]);
 
   const handlePageSizeChange = useCallback(
     (size: number) => {
-      clearSelection();
       changePageSize(size);
     },
-    [clearSelection, changePageSize],
+    [changePageSize],
   );
 
   const handleRowClick = useCallback(
     (item: TreeItem, ctrlKey?: boolean) => {
       if (item.type === 'folder') {
-        if (expandedFolders.has(item.id)) {
-          clearSelection();
-        }
         toggleFolder(item.id);
       } else if (item.type === 'flow') {
         const href = authenticationSession.appendProjectRoutePrefix(
@@ -251,14 +244,7 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
         }
       }
     },
-    [
-      navigate,
-      toggleFolder,
-      folders,
-      currentProjectName,
-      clearSelection,
-      expandedFolders,
-    ],
+    [navigate, toggleFolder, folders, currentProjectName],
   );
 
   const handleCreateInFolder = useCallback(
@@ -437,7 +423,9 @@ const AutomationsPageContent = ({ projectId }: { projectId: string }) => {
         onFolderChange={dialogs.setMoveToFolderId}
         onConfirm={dialogs.handleBulkMoveTo}
         isMoving={mutations.isMoving}
-        selectedCount={getMovableSelectedItems(selectedItems, treeItems).length}
+        selectedCount={
+          getMovableSelectedItems(selectedItems, knownItems).length
+        }
       />
 
       <RenameDialog

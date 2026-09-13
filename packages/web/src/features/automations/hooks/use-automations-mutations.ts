@@ -39,7 +39,7 @@ import { getSelectedIdsByType } from './use-automations-selection';
 const TARGET_FOLDER_NOT_FOUND = 'TARGET_FOLDER_NOT_FOUND';
 
 type MutationDeps = {
-  invalidateAll: () => void;
+  invalidateAll: () => Promise<unknown> | void;
   invalidateRoot: () => void;
   invalidateFolder: (folderId: string) => void;
   clearSelection: () => void;
@@ -145,8 +145,9 @@ export function useAutomationsMutations(deps: MutationDeps) {
       const targetExists =
         isUncategorized || deps.folderIds.includes(targetFolderId);
 
+      let result: BulkMoveResult;
       if (!targetExists) {
-        return {
+        result = {
           moved: [],
           failed: items.map((item) => ({
             id: item.id,
@@ -155,27 +156,31 @@ export function useAutomationsMutations(deps: MutationDeps) {
             errorReason: 'target_not_found' as const,
           })),
         };
+      } else {
+        const resolvedFolderId = isUncategorized ? null : targetFolderId;
+        const results = await Promise.all(
+          items.map((item) =>
+            moveSingleItem({ item, folderId: resolvedFolderId }),
+          ),
+        );
+        result = results.reduce<BulkMoveResult>(
+          (acc, entry) => {
+            if (entry.errorReason) {
+              acc.failed.push(entry);
+            } else {
+              acc.moved.push(entry);
+            }
+            return acc;
+          },
+          { moved: [], failed: [] },
+        );
       }
 
-      const resolvedFolderId = isUncategorized ? null : targetFolderId;
+      if (result.moved.length > 0) {
+        await deps.invalidateAll();
+      }
 
-      const results = await Promise.all(
-        items.map((item) =>
-          moveSingleItem({ item, folderId: resolvedFolderId }),
-        ),
-      );
-
-      return results.reduce<BulkMoveResult>(
-        (acc, result) => {
-          if (result.errorReason) {
-            acc.failed.push(result);
-          } else {
-            acc.moved.push(result);
-          }
-          return acc;
-        },
-        { moved: [], failed: [] },
-      );
+      return result;
     },
     onSuccess: ({ moved, failed }, { targetFolderId }) => {
       if (targetFolderId && targetFolderId !== UncategorizedFolderId) {

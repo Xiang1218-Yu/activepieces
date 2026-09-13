@@ -3,13 +3,21 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SelectableItemType, SelectedItemsMap, TreeItem } from '../lib/types';
 import { getItemKey } from '../lib/utils';
 
-export function useAutomationsSelection(treeItems: TreeItem[]) {
+type UseAutomationsSelectionParams = {
+  visibleItems: TreeItem[];
+  knownItems: TreeItem[];
+};
+
+export function useAutomationsSelection({
+  visibleItems,
+  knownItems,
+}: UseAutomationsSelectionParams) {
   const [selectedItems, setSelectedItems] = useState<SelectedItemsMap>(
     new Map(),
   );
 
   const childrenByFolder = useMemo(() => {
-    return treeItems.reduce((map, item) => {
+    return visibleItems.reduce((map, item) => {
       if (item.folderId && item.type !== 'load-more-folder') {
         const list = map.get(item.folderId) ?? [];
         list.push(item);
@@ -17,7 +25,7 @@ export function useAutomationsSelection(treeItems: TreeItem[]) {
       }
       return map;
     }, new Map<string, TreeItem[]>());
-  }, [treeItems]);
+  }, [visibleItems]);
 
   const toggleItemSelection = useCallback(
     (item: TreeItem) => {
@@ -69,8 +77,8 @@ export function useAutomationsSelection(treeItems: TreeItem[]) {
   );
 
   const selectableItems = useMemo(
-    () => treeItems.filter((item) => item.type !== 'load-more-folder'),
-    [treeItems],
+    () => visibleItems.filter((item) => item.type !== 'load-more-folder'),
+    [visibleItems],
   );
 
   const toggleAllSelection = useCallback(() => {
@@ -108,45 +116,55 @@ export function useAutomationsSelection(treeItems: TreeItem[]) {
   }, []);
 
   useEffect(() => {
-    setSelectedItems((prev) => {
-      const validLeafKeys = new Set<string>();
-      const folderChildKeys = new Map<string, string[]>();
-      for (const item of selectableItems) {
-        const key = getItemKey(item);
-        if (item.type === 'folder') {
-          folderChildKeys.set(
-            key,
-            (childrenByFolder.get(item.id) ?? []).map((child) =>
-              getItemKey(child),
-            ),
-          );
-        } else {
-          validLeafKeys.add(key);
+    const knownLeafKeys = new Set<string>();
+    const knownFolderIds = new Set<string>();
+    const knownChildrenByFolder = new Map<string, string[]>();
+    for (const item of knownItems) {
+      const key = getItemKey(item);
+      if (item.type === 'folder') {
+        knownFolderIds.add(item.id);
+        knownChildrenByFolder.set(item.id, []);
+      } else if (item.type === 'flow' || item.type === 'table') {
+        knownLeafKeys.add(key);
+        if (item.folderId) {
+          const list = knownChildrenByFolder.get(item.folderId);
+          if (list) list.push(key);
         }
       }
+    }
 
+    setSelectedItems((prev) => {
       let changed = false;
       const next = new Map(prev);
-      for (const key of [...next.keys()]) {
-        if (folderChildKeys.has(key)) {
-          const children = folderChildKeys.get(key) ?? [];
-          const stillFullySelected =
+
+      for (const [key, type] of [...next]) {
+        if (type === 'folder') {
+          const folderId = key.slice(key.indexOf('-') + 1);
+          const children = knownChildrenByFolder.get(folderId);
+          if (children === undefined) {
+            next.delete(key);
+            changed = true;
+            continue;
+          }
+          const fullySelected =
             children.length > 0 &&
             children.every((childKey) => next.has(childKey));
-          if (!stillFullySelected) {
+          if (!fullySelected) {
             next.delete(key);
             changed = true;
           }
           continue;
         }
-        if (!validLeafKeys.has(key)) {
+
+        if (!knownLeafKeys.has(key)) {
           next.delete(key);
           changed = true;
         }
       }
+
       return changed ? next : prev;
     });
-  }, [selectableItems, childrenByFolder]);
+  }, [knownItems]);
 
   const isItemSelected = useCallback(
     (item: TreeItem): boolean => {

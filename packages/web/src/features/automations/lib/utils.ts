@@ -451,9 +451,98 @@ export type MovableItem = {
   folderId: string | null;
 };
 
+export function buildKnownTreeItems({
+  folders,
+  rootFlows,
+  rootTables,
+  folderContents,
+}: {
+  folders: FolderDto[];
+  rootFlows: PopulatedFlow[];
+  rootTables: Table[];
+  folderContents: Map<string, FolderContent>;
+}): TreeItem[] {
+  const items: TreeItem[] = folders.map((folder) => ({
+    id: folder.id,
+    type: 'folder',
+    name: folder.displayName,
+    data: folder,
+    depth: 0,
+    folderId: null,
+  }));
+
+  const folderIdSet = new Set(folders.map((folder) => folder.id));
+  const seenLeafKeys = new Set<string>();
+
+  const addLeaf = (item: TreeItem) => {
+    const key = getItemKey(item);
+    if (seenLeafKeys.has(key)) return;
+    seenLeafKeys.add(key);
+    items.push(item);
+  };
+
+  for (const content of folderContents.values()) {
+    content.flows.forEach((flow) => {
+      if (!flow.folderId || !folderIdSet.has(flow.folderId)) return;
+      addLeaf({
+        id: flow.id,
+        type: 'flow',
+        name: flow.version.displayName,
+        data: flow,
+        depth: 1,
+        folderId: flow.folderId,
+      });
+    });
+    content.tables.forEach((table) => {
+      if (!table.folderId || !folderIdSet.has(table.folderId)) return;
+      addLeaf({
+        id: table.id,
+        type: 'table',
+        name: table.name,
+        data: table,
+        depth: 1,
+        folderId: table.folderId,
+      });
+    });
+  }
+
+  rootFlows
+    .filter((flow) => !flow.folderId || !folderIdSet.has(flow.folderId))
+    .forEach((flow) =>
+      addLeaf({
+        id: flow.id,
+        type: 'flow',
+        name: flow.version.displayName,
+        data: flow,
+        depth: 0,
+        folderId:
+          flow.folderId && folderIdSet.has(flow.folderId)
+            ? flow.folderId
+            : null,
+      }),
+    );
+  rootTables
+    .filter((table) => !table.folderId || !folderIdSet.has(table.folderId))
+    .forEach((table) =>
+      addLeaf({
+        id: table.id,
+        type: 'table',
+        name: table.name,
+        data: table,
+        depth: 0,
+        folderId:
+          table.folderId && folderIdSet.has(table.folderId)
+            ? table.folderId
+            : null,
+      }),
+    );
+
+  return items;
+}
+
 export function getMovableSelectedItems(
   selectedItems: SelectedItemsMap,
-  treeItems: TreeItem[],
+  knownItems: TreeItem[],
 ): MovableItem[] {
   const selectedLeafKeys = new Set<string>();
   for (const [key, type] of selectedItems) {
@@ -462,7 +551,7 @@ export function getMovableSelectedItems(
     }
   }
 
-  return treeItems
+  return knownItems
     .filter(
       (item) =>
         (item.type === 'flow' || item.type === 'table') &&

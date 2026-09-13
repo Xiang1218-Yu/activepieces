@@ -23,6 +23,7 @@ import {
 } from '../lib/types';
 import {
   buildFilteredTreeItems,
+  buildKnownTreeItems,
   buildTreeItems,
   DEFAULT_PAGE_SIZE,
   FOLDER_PAGE_SIZE,
@@ -190,7 +191,7 @@ export function useAutomationsData({
     setRootPage(0);
   }, []);
 
-  const { treeItems, totalPageItems } = useMemo(() => {
+  const { treeItems, totalPageItems, effectivePage } = useMemo(() => {
     let folders = foldersQuery.data ?? [];
     let rootFlows = rootFlowsQuery.data?.data ?? [];
     let rootTables = rootTablesQuery.data?.data ?? [];
@@ -209,12 +210,27 @@ export function useAutomationsData({
         );
       }
 
+      const probe = buildFilteredTreeItems({
+        flows: rootFlows,
+        tables: rootTables,
+        folders,
+        folderVisibleCounts,
+        page: 0,
+        pageSize: 1,
+        pinnedList,
+        searchTerm: filters.searchTerm,
+        folderContents,
+        folderCounts,
+        sort,
+      });
+      const lastPage = Math.max(0, Math.ceil(probe.totalItems / pageSize) - 1);
+      const page = Math.min(rootPage, lastPage);
       const { items, totalItems } = buildFilteredTreeItems({
         flows: rootFlows,
         tables: rootTables,
         folders,
         folderVisibleCounts,
-        page: rootPage,
+        page,
         pageSize,
         pinnedList,
         searchTerm: filters.searchTerm,
@@ -222,7 +238,11 @@ export function useAutomationsData({
         folderCounts,
         sort,
       });
-      return { treeItems: items, totalPageItems: totalItems };
+      return {
+        treeItems: items,
+        totalPageItems: totalItems,
+        effectivePage: page,
+      };
     }
 
     if (hasFolderFilter) {
@@ -232,6 +252,24 @@ export function useAutomationsData({
       rootTables = [];
     }
 
+    const probe = buildTreeItems({
+      folders,
+      rootFlows,
+      rootTables,
+      folderContents,
+      folderCounts,
+      folderVisibleCounts,
+      rootPage: 0,
+      pageSize: 1,
+      pinnedList,
+      sort,
+    });
+    const lastPage = Math.max(
+      0,
+      Math.ceil(probe.totalRootItems / pageSize) - 1,
+    );
+    const rootPageClamped = Math.min(rootPage, lastPage);
+
     const { items, totalRootItems } = buildTreeItems({
       folders,
       rootFlows,
@@ -239,13 +277,17 @@ export function useAutomationsData({
       folderContents,
       folderCounts,
       folderVisibleCounts,
-      rootPage,
+      rootPage: rootPageClamped,
       pageSize,
       pinnedList,
       sort,
     });
 
-    return { treeItems: items, totalPageItems: totalRootItems };
+    return {
+      treeItems: items,
+      totalPageItems: totalRootItems,
+      effectivePage: rootPageClamped,
+    };
   }, [
     foldersQuery.data,
     rootFlowsQuery.data,
@@ -262,6 +304,20 @@ export function useAutomationsData({
     sort,
   ]);
 
+  const knownItems = useMemo(() => {
+    return buildKnownTreeItems({
+      folders: foldersQuery.data ?? [],
+      rootFlows: rootFlowsQuery.data?.data ?? [],
+      rootTables: rootTablesQuery.data?.data ?? [],
+      folderContents: folderContentsQuery.data ?? new Map(),
+    });
+  }, [
+    foldersQuery.data,
+    rootFlowsQuery.data,
+    rootTablesQuery.data,
+    folderContentsQuery.data,
+  ]);
+
   const hasFolderFilter = filters.folderFilter.length > 0;
   const effectiveExpandedFolders = useMemo(() => {
     if (!isFiltered && !hasFolderFilter) return expandedFolders;
@@ -274,13 +330,13 @@ export function useAutomationsData({
     return all;
   }, [isFiltered, hasFolderFilter, expandedFolders, treeItems]);
 
-  const totalPages = Math.ceil(totalPageItems / pageSize);
+  const totalPages = Math.max(1, Math.ceil(totalPageItems / pageSize));
 
   useEffect(() => {
-    if (rootPage > 0 && rootPage >= totalPages) {
-      setRootPage(Math.max(0, totalPages - 1));
+    if (rootPage !== effectivePage) {
+      setRootPage(effectivePage);
     }
-  }, [rootPage, totalPages]);
+  }, [rootPage, effectivePage]);
 
   const isLoading =
     foldersQuery.isLoading ||
@@ -318,6 +374,7 @@ export function useAutomationsData({
 
   return {
     treeItems,
+    knownItems,
     folders: foldersQuery.data ?? [],
     rootFlows: rootFlowsQuery.data?.data ?? [],
     rootTables: rootTablesQuery.data?.data ?? [],
@@ -327,7 +384,7 @@ export function useAutomationsData({
     expandedFolders: effectiveExpandedFolders,
     toggleFolder,
     loadMoreInFolder,
-    rootPage,
+    rootPage: effectivePage,
     pageSize,
     changePageSize,
     totalPages,
