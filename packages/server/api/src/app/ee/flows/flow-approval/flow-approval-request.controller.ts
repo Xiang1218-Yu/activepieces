@@ -24,9 +24,11 @@ export const flowApprovalRequestController: FastifyPluginAsyncZod = async (app) 
     })
 
     app.get('/:id', GetRequest, async (req) => {
+        const viewerId = req.principal.type === PrincipalType.USER ? req.principal.id : undefined
         return flowApprovalRequestService(req.log).getPopulatedOrThrow({
             requestId: req.params.id,
             projectId: req.projectId,
+            viewerId,
         })
     })
 

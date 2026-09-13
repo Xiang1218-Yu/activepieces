@@ -75,6 +75,10 @@ export const FlowApprovalRequestEntity = new EntitySchema<FlowApprovalRequestSch
             type: 'timestamp with time zone',
             nullable: true,
         },
+        pauseReason: {
+            type: String,
+            nullable: true,
+        },
         escalatedAt: {
             type: 'timestamp with time zone',
             nullable: true,

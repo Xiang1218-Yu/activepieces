@@ -130,21 +130,19 @@ export function ApprovalSlaSettings() {
   const handleSave = async () => {
     const body: UpsertApprovalSlaPolicyRequestBody = {
       timezone,
-      rules: Object.fromEntries(
-        enabledPriorities.map((priority) => {
-          const draft = rules[priority];
-          return [
-            priority,
-            {
-              timeoutMinutes: draft.timeoutMinutes,
-              ...(isNil(draft.escalationMinutes) || draft.escalationMinutes <= 0
-                ? {}
-                : { escalationMinutes: draft.escalationMinutes }),
-              escalationTargetUserIds: draft.escalationTargetUserIds,
-            },
-          ];
-        }),
-      ) as UpsertApprovalSlaPolicyRequestBody['rules'],
+      rules: enabledPriorities.map((priority) => {
+        const draft = rules[priority];
+        return {
+          priority,
+          rule: {
+            timeoutMinutes: draft.timeoutMinutes,
+            ...(isNil(draft.escalationMinutes) || draft.escalationMinutes <= 0
+              ? {}
+              : { escalationMinutes: draft.escalationMinutes }),
+            escalationTargetUserIds: draft.escalationTargetUserIds,
+          },
+        };
+      }),
     };
     await upsert(body);
   };

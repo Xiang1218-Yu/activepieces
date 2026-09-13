@@ -818,6 +818,11 @@ async function applyStatusChange(params: {
                 publishedVersionId: publishedFlowVersion.id,
             })
             await flowExecutionCache(log).invalidate(params.id)
+            await publishHooksFactory.get(log).syncApprovalSlaWithFlowStatus({
+                flowId: params.id,
+                projectId: params.projectId,
+                newStatus: params.newStatus,
+            })
         },
     })
 }

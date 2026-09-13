@@ -90,6 +90,7 @@ async function seedPendingApproval(ctx: TestContext, submitterId: string): Promi
         priority: FlowApprovalPriority.NORMAL,
         slaDeadlineAt: null,
         pausedAt: null,
+        pauseReason: null,
         escalatedAt: null,
         slaBreachReason: null,
     }

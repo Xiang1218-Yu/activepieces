@@ -48,11 +48,17 @@ export function ApprovalSlaBadge({
   }
 
   if (sla.paused) {
+    const pausedLabel =
+      sla.pauseReason === 'FLOW_DISABLED'
+        ? t('SLA paused: flow is disabled')
+        : sla.pauseReason === 'FLOW_DELETED'
+        ? t('SLA paused: flow was deleted')
+        : t('SLA paused');
     return (
       <div className={cn('flex flex-col gap-0.5', className)}>
         <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
           <Pause className="size-3.5" />
-          {t('SLA paused')}
+          {pausedLabel}
         </span>
         {showDetails && sla.escalationTargetUserIds.length > 0 && (
           <EscalationTargetText count={sla.escalationTargetUserIds.length} />

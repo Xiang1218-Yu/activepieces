@@ -1,6 +1,7 @@
 import {
     apId,
     ApprovalSlaBreachReason,
+    ApprovalSlaPauseReason,
     DefaultProjectRole,
     Flow,
     FlowApprovalPriority,
@@ -83,6 +84,7 @@ async function seedPendingApprovalWithDeadline(
         priority,
         slaDeadlineAt: deadlineIso,
         pausedAt: null,
+        pauseReason: null,
         escalatedAt: null,
         slaBreachReason: null,
         ...overrides,
@@ -99,12 +101,12 @@ describe('approval SLA — policy', () => {
             platformId: ctx.platform.id,
             request: {
                 timezone: 'Europe/Berlin',
-                rules: {
-                    [FlowApprovalPriority.HIGH]: {
+                rules: [
+                    { priority: FlowApprovalPriority.HIGH, rule: {
                         timeoutMinutes: 120,
                         escalationTargetUserIds: [],
-                    },
-                },
+                    } },
+                ],
             },
         })
         expect(saved.timezone).toBe('Europe/Berlin')
@@ -118,9 +120,9 @@ describe('approval SLA — policy', () => {
             platformId: ctx.platform.id,
             request: {
                 timezone: 'Mars/Olympus',
-                rules: {
-                    [FlowApprovalPriority.HIGH]: { timeoutMinutes: 120, escalationTargetUserIds: [] },
-                },
+                rules: [
+                    { priority: FlowApprovalPriority.HIGH, rule: { timeoutMinutes: 120, escalationTargetUserIds: [] } },
+                ],
             },
         })).rejects.toThrow(/Unsupported time zone/)
     })
@@ -143,9 +145,9 @@ describe('approval SLA — deadline and visibility', () => {
             platformId: ctx.platform.id,
             request: {
                 timezone: 'Etc/UTC',
-                rules: {
-                    [FlowApprovalPriority.HIGH]: { timeoutMinutes: 30, escalationTargetUserIds: [] },
-                },
+                rules: [
+                    { priority: FlowApprovalPriority.HIGH, rule: { timeoutMinutes: 30, escalationTargetUserIds: [] } },
+                ],
             },
         })
         const flow = createMockFlow({ projectId: ctx.project.id, status: FlowStatus.DISABLED })
@@ -181,9 +183,9 @@ describe('approval SLA — deadline and visibility', () => {
             platformId: ctx.platform.id,
             request: {
                 timezone: 'Etc/UTC',
-                rules: {
-                    [FlowApprovalPriority.NORMAL]: { timeoutMinutes: 60, escalationTargetUserIds: [] },
-                },
+                rules: [
+                    { priority: FlowApprovalPriority.NORMAL, rule: { timeoutMinutes: 60, escalationTargetUserIds: [] } },
+                ],
             },
         })
         const { approval } = await seedPendingApprovalWithDeadline(
@@ -222,9 +224,9 @@ describe('approval SLA — pause stops the countdown', () => {
             platformId: ctx.platform.id,
             request: {
                 timezone: 'Etc/UTC',
-                rules: {
-                    [FlowApprovalPriority.HIGH]: { timeoutMinutes: 60, escalationTargetUserIds: [] },
-                },
+                rules: [
+                    { priority: FlowApprovalPriority.HIGH, rule: { timeoutMinutes: 60, escalationTargetUserIds: [] } },
+                ],
             },
         })
         const memberCtx = await createMemberContext(app!, ctx, {
@@ -268,9 +270,9 @@ describe('approval SLA — sweep', () => {
             platformId: ctx.platform.id,
             request: {
                 timezone: 'Etc/UTC',
-                rules: {
-                    [FlowApprovalPriority.HIGH]: { timeoutMinutes: 60, escalationTargetUserIds: [] },
-                },
+                rules: [
+                    { priority: FlowApprovalPriority.HIGH, rule: { timeoutMinutes: 60, escalationTargetUserIds: [] } },
+                ],
             },
         })
         const pastDue = await seedPendingApprovalWithDeadline(
@@ -303,13 +305,13 @@ describe('approval SLA — sweep', () => {
             platformId: ctx.platform.id,
             request: {
                 timezone: 'Etc/UTC',
-                rules: {
-                    [FlowApprovalPriority.URGENT]: {
+                rules: [
+                    { priority: FlowApprovalPriority.URGENT, rule: {
                         timeoutMinutes: 60,
                         escalationMinutes: 90,
                         escalationTargetUserIds: [ctx.user.id],
-                    },
-                },
+                    } },
+                ],
             },
         })
 
@@ -330,6 +332,172 @@ describe('approval SLA — sweep', () => {
         await approvalSlaSweepService(app!.log).run()
         const second = await db.findOneByOrFail<FlowApprovalRequest>('flow_approval_request', { id: pastDue.approval.id })
         expect(second.escalatedAt).toBe(firstEscalatedAt)
+    })
+})
+
+describe('approval SLA — regression: partial priorities', () => {
+    it('saves only the enabled priorities without requiring the other three', async () => {
+        const ctx = await setupSensitiveCtx()
+        const saved = await approvalSlaPolicyService(app!.log).upsert({
+            projectId: ctx.project.id,
+            platformId: ctx.platform.id,
+            request: {
+                timezone: 'Etc/UTC',
+                rules: [
+                    { priority: FlowApprovalPriority.HIGH, rule: { timeoutMinutes: 120, escalationTargetUserIds: [] } },
+                ],
+            },
+        })
+        expect(Object.keys(saved.rules)).toEqual([FlowApprovalPriority.HIGH])
+        expect(saved.rules[FlowApprovalPriority.HIGH]?.timeoutMinutes).toBe(120)
+        expect(saved.rules[FlowApprovalPriority.LOW]).toBeUndefined()
+        expect(saved.rules[FlowApprovalPriority.NORMAL]).toBeUndefined()
+        expect(saved.rules[FlowApprovalPriority.URGENT]).toBeUndefined()
+
+        const resaved = await approvalSlaPolicyService(app!.log).upsert({
+            projectId: ctx.project.id,
+            platformId: ctx.platform.id,
+            request: {
+                timezone: 'Europe/Berlin',
+                rules: [
+                    { priority: FlowApprovalPriority.NORMAL, rule: { timeoutMinutes: 480, escalationTargetUserIds: [] } },
+                    { priority: FlowApprovalPriority.URGENT, rule: { timeoutMinutes: 15, escalationTargetUserIds: [] } },
+                ],
+            },
+        })
+        expect(Object.keys(resaved.rules).sort()).toEqual(
+            [FlowApprovalPriority.NORMAL, FlowApprovalPriority.URGENT].sort(),
+        )
+        expect(resaved.timezone).toBe('Europe/Berlin')
+
+        const invalidEmpty = approvalSlaPolicyService(app!.log).upsert({
+            projectId: ctx.project.id,
+            platformId: ctx.platform.id,
+            request: { timezone: 'Etc/UTC', rules: [] },
+        })
+        await expect(invalidEmpty).rejects.toThrow()
+    })
+})
+
+describe('approval SLA — regression: flow disabled or deleted', () => {
+    it('pauses the countdown when the flow is disabled and resumes it when enabled again', async () => {
+        const ctx = await setupSensitiveCtx()
+        await approvalSlaPolicyService(app!.log).upsert({
+            projectId: ctx.project.id,
+            platformId: ctx.platform.id,
+            request: {
+                timezone: 'Etc/UTC',
+                rules: [
+                    { priority: FlowApprovalPriority.HIGH, rule: { timeoutMinutes: 60, escalationTargetUserIds: [] } },
+                ],
+            },
+        })
+        const { approval } = await seedPendingApprovalWithDeadline(
+            ctx,
+            ctx.user.id,
+            new Date(Date.now() + 30 * 60_000).toISOString(),
+        )
+
+        await flowApprovalRequestService(app!.log).pausePendingForFlow({
+            flowId: approval.flowId,
+            projectId: ctx.project.id,
+            reason: ApprovalSlaPauseReason.FLOW_DISABLED,
+        })
+        const pausedRow = await db.findOneByOrFail<FlowApprovalRequest>('flow_approval_request', { id: approval.id })
+        expect(pausedRow.pausedAt).not.toBeNull()
+        expect(pausedRow.pauseReason).toBe('FLOW_DISABLED')
+
+        const dueWhilePaused = await flowApprovalRequestService(app!.log).listDueForSlaCheck({ nowIso: new Date(Date.now() + 2 * 60 * 60_000).toISOString() })
+        expect(dueWhilePaused.map((row) => row.id)).not.toContain(approval.id)
+
+        await new Promise((resolve) => setTimeout(resolve, 1100))
+        await flowApprovalRequestService(app!.log).resumePendingForFlow({
+            flowId: approval.flowId,
+            projectId: ctx.project.id,
+            reason: ApprovalSlaPauseReason.FLOW_DISABLED,
+        })
+        const resumedRow = await db.findOneByOrFail<FlowApprovalRequest>('flow_approval_request', { id: approval.id })
+        expect(resumedRow.pausedAt).toBeNull()
+        expect(resumedRow.pauseReason).toBeNull()
+    })
+
+    it('cancels pending approvals when the flow is deleted so the sweep never escalates them', async () => {
+        const ctx = await setupSensitiveCtx()
+        await approvalSlaPolicyService(app!.log).upsert({
+            projectId: ctx.project.id,
+            platformId: ctx.platform.id,
+            request: {
+                timezone: 'Etc/UTC',
+                rules: [
+                    { priority: FlowApprovalPriority.HIGH, rule: { timeoutMinutes: 60, escalationTargetUserIds: [] } },
+                ],
+            },
+        })
+        const { approval } = await seedPendingApprovalWithDeadline(
+            ctx,
+            ctx.user.id,
+            new Date(Date.now() - 60_000).toISOString(),
+        )
+
+        const cancelled = await flowApprovalRequestService(app!.log).cancelPendingForDeletedFlow({
+            flowId: approval.flowId,
+            projectId: ctx.project.id,
+        })
+        expect(cancelled.map((row) => row.id)).toContain(approval.id)
+
+        const remaining = await db.findBy<FlowApprovalRequest>('flow_approval_request', { id: approval.id })
+        expect(remaining).toHaveLength(0)
+
+        const result = await approvalSlaSweepService(app!.log).run()
+        expect(result.escalated).toBe(0)
+        expect(result.breached).toBe(0)
+    })
+})
+
+describe('approval SLA — regression: detail visibility', () => {
+    it('hides an approval detail from a member without permission even if they know its id', async () => {
+        const ctx = await setupSensitiveCtx()
+        const memberCtx = await createMemberContext(app!, ctx, {
+            projectRole: DefaultProjectRole.EDITOR,
+        })
+        await approvalSlaPolicyService(app!.log).upsert({
+            projectId: ctx.project.id,
+            platformId: ctx.platform.id,
+            request: {
+                timezone: 'Etc/UTC',
+                rules: [
+                    { priority: FlowApprovalPriority.NORMAL, rule: { timeoutMinutes: 60, escalationTargetUserIds: [] } },
+                ],
+            },
+        })
+        const { approval } = await seedPendingApprovalWithDeadline(
+            ctx,
+            ctx.user.id,
+            new Date(Date.now() + 60 * 60_000).toISOString(),
+        )
+
+        await expect(flowApprovalRequestService(app!.log).getPopulatedOrThrow({
+            requestId: approval.id,
+            projectId: ctx.project.id,
+            viewerId: memberCtx.user.id,
+        })).rejects.toThrow()
+
+        const response = await memberCtx.get(`/v1/flow-approval-requests/${approval.id}`, {
+            projectId: ctx.project.id,
+        })
+        expect([StatusCodes.FORBIDDEN, StatusCodes.NOT_FOUND]).toContain(response?.statusCode)
+
+        const own = await seedPendingApprovalWithDeadline(
+            ctx,
+            memberCtx.user.id,
+            new Date(Date.now() + 60 * 60_000).toISOString(),
+        )
+        const ownDetail = await flowApprovalRequestService(app!.log).getPopulatedOrThrow({
+            requestId: own.approval.id,
+            projectId: ctx.project.id,
+            viewerId: memberCtx.user.id,
+        })
+        expect(ownDetail.id).toBe(own.approval.id)
     })
 })
 

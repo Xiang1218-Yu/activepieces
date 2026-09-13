@@ -16,6 +16,12 @@ export enum ApprovalSlaBreachReason {
     ESCALATION_LIMIT = 'ESCALATION_LIMIT',
 }
 
+export enum ApprovalSlaPauseReason {
+    MANUAL = 'MANUAL',
+    FLOW_DISABLED = 'FLOW_DISABLED',
+    FLOW_DELETED = 'FLOW_DELETED',
+}
+
 export const APPROVAL_SLA_TIMEZONE_DEFAULT = 'Etc/UTC'
 
 export const ApprovalSlaRule = z.object({
@@ -25,6 +31,8 @@ export const ApprovalSlaRule = z.object({
 })
 export type ApprovalSlaRule = z.infer<typeof ApprovalSlaRule>
 
+export type ApprovalSlaRules = Partial<Record<FlowApprovalPriority, ApprovalSlaRule>>
+
 export const ApprovalSlaPolicy = z.object({
     ...BaseModelSchema,
     projectId: ApId,
@@ -32,15 +40,22 @@ export const ApprovalSlaPolicy = z.object({
     timezone: z.string().min(1, { message: 'required' }).max(64),
     rules: z.record(z.enum(FlowApprovalPriority), ApprovalSlaRule),
 })
-export type ApprovalSlaPolicy = z.infer<typeof ApprovalSlaPolicy>
+export type ApprovalSlaPolicy = Omit<z.infer<typeof ApprovalSlaPolicy>, 'rules'> & {
+    rules: ApprovalSlaRules
+}
+
+export const ApprovalSlaRuleInput = ApprovalSlaRule.omit({ escalationTargetUserIds: true }).extend({
+    escalationTargetUserIds: z.array(ApId).max(50, { message: 'tooManyEscalationTargets' }).catch([]),
+})
 
 export const UpsertApprovalSlaPolicyRequestBody = z.object({
     timezone: z.string().min(1, { message: 'required' }).max(64),
     rules: z
-        .record(z.enum(FlowApprovalPriority), ApprovalSlaRule.omit({ escalationTargetUserIds: true }).extend({
-            escalationTargetUserIds: z.array(ApId).max(50, { message: 'tooManyEscalationTargets' }),
+        .array(z.object({
+            priority: z.enum(FlowApprovalPriority),
+            rule: ApprovalSlaRuleInput,
         }))
-        .refine((rules) => Object.keys(rules).length > 0, { message: 'atLeastOnePriorityRule' }),
+        .min(1, { message: 'atLeastOnePriorityRule' }),
 })
 export type UpsertApprovalSlaPolicyRequestBody = z.infer<typeof UpsertApprovalSlaPolicyRequestBody>
 
@@ -52,6 +67,7 @@ export const ApprovalSlaStatus = z.object({
     remainingMs: z.number(),
     overdue: z.boolean(),
     paused: z.boolean(),
+    pauseReason: z.nullable(z.enum(ApprovalSlaPauseReason)),
     escalationTargetUserIds: z.array(ApId),
     escalatedAt: Nullable(z.string()),
     breachReason: z.nullable(z.enum(ApprovalSlaBreachReason)),
@@ -74,6 +90,7 @@ export const FlowApprovalRequest = z.object({
     priority: z.enum(FlowApprovalPriority),
     slaDeadlineAt: Nullable(z.string()),
     pausedAt: Nullable(z.string()),
+    pauseReason: z.nullable(z.enum(ApprovalSlaPauseReason)),
     escalatedAt: Nullable(z.string()),
     slaBreachReason: Nullable(z.enum(ApprovalSlaBreachReason)),
 })

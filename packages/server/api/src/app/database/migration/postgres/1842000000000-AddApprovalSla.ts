@@ -42,6 +42,10 @@ export class AddApprovalSla1842000000000 implements Migration {
         `)
         await queryRunner.query(`
             ALTER TABLE "flow_approval_request"
+            ADD COLUMN IF NOT EXISTS "pauseReason" character varying
+        `)
+        await queryRunner.query(`
+            ALTER TABLE "flow_approval_request"
             ADD COLUMN IF NOT EXISTS "escalatedAt" timestamp with time zone
         `)
         await queryRunner.query(`
@@ -60,6 +64,7 @@ export class AddApprovalSla1842000000000 implements Migration {
         await queryRunner.query('DROP INDEX IF EXISTS "idx_flow_approval_request_sla_due"')
         await queryRunner.query('ALTER TABLE "flow_approval_request" DROP COLUMN IF EXISTS "slaBreachReason"')
         await queryRunner.query('ALTER TABLE "flow_approval_request" DROP COLUMN IF EXISTS "escalatedAt"')
+        await queryRunner.query('ALTER TABLE "flow_approval_request" DROP COLUMN IF EXISTS "pauseReason"')
         await queryRunner.query('ALTER TABLE "flow_approval_request" DROP COLUMN IF EXISTS "pausedAt"')
         await queryRunner.query('ALTER TABLE "flow_approval_request" DROP COLUMN IF EXISTS "slaDeadlineAt"')
         await queryRunner.query('ALTER TABLE "flow_approval_request" DROP COLUMN IF EXISTS "priority"')

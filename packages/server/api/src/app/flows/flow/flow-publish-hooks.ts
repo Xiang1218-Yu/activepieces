@@ -1,6 +1,6 @@
 import { Flow, FlowApprovalPriority, FlowStatus, PlatformId, ProjectId, UserId } from '@activepieces/shared'
-import { EntityManager } from 'typeorm'
 import { FastifyBaseLogger } from 'fastify'
+import { EntityManager } from 'typeorm'
 import { hooksFactory } from '../../helper/hooks-factory'
 
 export type PublishRoute = 'PUBLISH_NOW' | 'NEEDS_APPROVAL'
@@ -8,6 +8,8 @@ export type PublishRoute = 'PUBLISH_NOW' | 'NEEDS_APPROVAL'
 export type PublishHooks = {
     routePublish(params: RoutePublishParams): Promise<PublishRoute>
     submitForApproval(params: SubmitForApprovalParams): Promise<void>
+    syncApprovalSlaWithFlowStatus(params: SyncApprovalSlaParams): Promise<void>
+    cancelApprovalsForDeletedFlow(params: CancelApprovalsForDeletedFlowParams): Promise<void>
 }
 
 export const publishHooksFactory = hooksFactory.create<PublishHooks>((_log: FastifyBaseLogger) => ({
@@ -15,6 +17,12 @@ export const publishHooksFactory = hooksFactory.create<PublishHooks>((_log: Fast
         return 'PUBLISH_NOW'
     },
     async submitForApproval(_params: SubmitForApprovalParams): Promise<void> {
+        return
+    },
+    async syncApprovalSlaWithFlowStatus(_params: SyncApprovalSlaParams): Promise<void> {
+        return
+    },
+    async cancelApprovalsForDeletedFlow(_params: CancelApprovalsForDeletedFlowParams): Promise<void> {
         return
     },
 }))
@@ -39,6 +47,17 @@ export type SubmitForApprovalParams = {
     platformId: PlatformId
     requestedStatus: FlowStatus
     priority: FlowApprovalPriority
+}
+
+export type SyncApprovalSlaParams = {
+    flowId: string
+    projectId: ProjectId
+    newStatus: FlowStatus
+}
+
+export type CancelApprovalsForDeletedFlowParams = {
+    flowId: string
+    projectId: ProjectId
 }
 
 export type FlowPublishHooks = {

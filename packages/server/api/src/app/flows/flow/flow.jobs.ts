@@ -7,6 +7,7 @@ import { WaitpointEntity } from '../../waitpoints/waitpoint-entity'
 import { flowRunRepo } from '../flow-run/flow-run-service'
 import { flowVersionRepo } from '../flow-version/flow-version.service'
 import { flowExecutionCache } from './flow-execution-cache'
+import { publishHooksFactory } from './flow-publish-hooks'
 import { flowSideEffects } from './flow-service-side-effects'
 import { flowRepo } from './flow.repo'
 
@@ -66,6 +67,10 @@ export const flowBackgroundJobs = (log: FastifyBaseLogger) => ({
             })
         }
         await batchDeleteByFlowId(flow.id)
+        await publishHooksFactory.get(log).cancelApprovalsForDeletedFlow({
+            flowId: flow.id,
+            projectId: flow.projectId,
+        })
         await flowRepo().delete({ id: flow.id })
         await flowExecutionCache(log).invalidate(flow.id)
     },

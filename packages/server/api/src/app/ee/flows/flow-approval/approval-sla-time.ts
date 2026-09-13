@@ -1,4 +1,4 @@
-import { ApprovalSlaBreachReason, ApprovalSlaPolicy, ApprovalSlaRule, ApprovalSlaStatus, FlowApprovalPriority, FlowApprovalRequestState } from '@activepieces/shared'
+import { ApprovalSlaBreachReason, ApprovalSlaPauseReason, ApprovalSlaPolicy, ApprovalSlaRule, ApprovalSlaStatus, FlowApprovalPriority, FlowApprovalRequestState } from '@activepieces/shared'
 import dayjs from 'dayjs'
 import timezone from 'dayjs/plugin/timezone'
 import utc from 'dayjs/plugin/utc'
@@ -67,6 +67,7 @@ export type SlaStatusInput = {
     submittedAt: string
     slaDeadlineAt?: string | null
     pausedAt?: string | null
+    pauseReason?: ApprovalSlaPauseReason | null
     escalatedAt?: string | null
     slaBreachReason?: ApprovalSlaBreachReason | null
 }
@@ -100,6 +101,7 @@ export function computeSlaStatus({
             remainingMs: 0,
             overdue: approval.slaBreachReason != null,
             paused: false,
+            pauseReason: null,
             escalationTargetUserIds: rule.escalationTargetUserIds,
             escalatedAt: approval.escalatedAt ?? null,
             breachReason: approval.slaBreachReason ?? null,
@@ -119,6 +121,7 @@ export function computeSlaStatus({
         remainingMs,
         overdue,
         paused,
+        pauseReason: approval.pauseReason ?? null,
         escalationTargetUserIds: rule.escalationTargetUserIds,
         escalatedAt: approval.escalatedAt ?? null,
         breachReason: approval.slaBreachReason ?? null,

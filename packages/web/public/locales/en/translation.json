@@ -2895,5 +2895,7 @@
   "atLeastOnePriorityRule": "atLeastOnePriorityRule",
   "Pause SLA": "Pause SLA",
   "Resume SLA": "Resume SLA",
-  "Flow approval SLA escalated": "Flow approval SLA escalated"
+  "Flow approval SLA escalated": "Flow approval SLA escalated",
+  "SLA paused: flow is disabled": "SLA paused: flow is disabled",
+  "SLA paused: flow was deleted": "SLA paused: flow was deleted"
 }
