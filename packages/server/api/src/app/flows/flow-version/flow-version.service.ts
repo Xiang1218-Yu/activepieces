@@ -62,6 +62,7 @@ export const flowVersionService = (log: FastifyBaseLogger) => ({
                         displayName: previousVersion.displayName,
                         schemaVersion: previousVersion.schemaVersion,
                         notes: previousVersion.notes,
+                        preserveNoteAuthors: true,
                     },
                 }]
                 if (
@@ -113,7 +114,13 @@ export const flowVersionService = (log: FastifyBaseLogger) => ({
             if (operation.type === FlowOperationType.ADD_NOTE) {
                 const noteIndex = mutatedFlowVersion.notes.findIndex((note) => note.id === operation.request.id)
                 if (noteIndex !== -1) {
-                    mutatedFlowVersion.notes[noteIndex] = { ...mutatedFlowVersion.notes[noteIndex], ownerId: userId }
+                    mutatedFlowVersion.notes[noteIndex] = { ...mutatedFlowVersion.notes[noteIndex], ownerId: userId, lastUpdatedBy: userId }
+                }
+            }
+            if (operation.type === FlowOperationType.UPDATE_NOTE && !isNil(userId)) {
+                const noteIndex = mutatedFlowVersion.notes.findIndex((note) => note.id === operation.request.id)
+                if (noteIndex !== -1) {
+                    mutatedFlowVersion.notes[noteIndex] = { ...mutatedFlowVersion.notes[noteIndex], lastUpdatedBy: userId }
                 }
             }
         }

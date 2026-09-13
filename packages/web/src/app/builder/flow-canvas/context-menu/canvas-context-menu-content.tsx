@@ -67,6 +67,7 @@ export const CanvasContextMenuContent = ({
     exitStepSettings,
     readonly,
     setOpenedPieceSelectorStepNameOrAddButtonId,
+    detachNotesFromSteps,
   ] = useBuilderStateContext((state) => [
     state.selectedNodes,
     state.applyOperation,
@@ -75,6 +76,7 @@ export const CanvasContextMenuContent = ({
     state.exitStepSettings,
     state.readonly,
     state.setOpenedPieceSelectorStepNameOrAddButtonId,
+    state.detachNotesFromSteps,
   ]);
   const disabled = selectedNodes.length === 0;
   const areAllStepsSkipped = selectedNodes.every(
@@ -407,6 +409,7 @@ export const CanvasContextMenuContent = ({
                   applyOperation,
                   selectedStep,
                   exitStepSettings,
+                  detachNotesFromSteps,
                 });
               }}
             >

@@ -358,7 +358,10 @@ async function handleLockedVersion(flow: PopulatedFlow, userId: UserId, projectI
         previousFlow: flow,
         operation: {
             type: FlowOperationType.IMPORT_FLOW,
-            request: replaceConnectionInFlowVersion(lastPublishedVersion, appConnection, newAppConnection),
+            request: {
+                ...replaceConnectionInFlowVersion(lastPublishedVersion, appConnection, newAppConnection),
+                preserveNoteAuthors: true,
+            },
         },
     })
 
@@ -395,7 +398,10 @@ async function handleDraftVersion(flow: Flow, userId: UserId, projectId: Project
         userId,
         operation: {
             type: FlowOperationType.IMPORT_FLOW,
-            request: replaceConnectionInFlowVersion(latestVersion, appConnection, newAppConnection),
+            request: {
+                ...replaceConnectionInFlowVersion(latestVersion, appConnection, newAppConnection),
+                preserveNoteAuthors: true,
+            },
         },
     })
 }

@@ -295,7 +295,9 @@ function formatFlowStructure(
     else {
         for (const note of notes) {
             const content = note.content.replace(/<[^>]*>/g, '').slice(0, 80)
-            lines.push(`- id: ${note.id} | "${content}" | color: ${note.color} | pos: (${Math.round(note.position.x)}, ${Math.round(note.position.y)}) | size: ${note.size.width}×${note.size.height}`)
+            const resolvedLabel = note.resolved ? ' | resolved' : ''
+            const stepLabel = note.stepName ? ` | step: ${note.stepName}` : ''
+            lines.push(`- id: ${note.id} | "${content}" | color: ${note.color} | pos: (${Math.round(note.position.x)}, ${Math.round(note.position.y)}) | size: ${note.size.width}×${note.size.height}${resolvedLabel}${stepLabel}`)
         }
     }
 

@@ -1,7 +1,8 @@
-import { NoteColorVariant } from '@activepieces/shared';
+import { NoteColorVariant, flowStructureUtil } from '@activepieces/shared';
 import { Editor } from '@tiptap/core';
+import { useReactFlow } from '@xyflow/react';
 import { t } from 'i18next';
-import { TrashIcon } from 'lucide-react';
+import { CheckCircle2, Link2, Link2Off, TrashIcon } from 'lucide-react';
 import { forwardRef, useRef, useState } from 'react';
 
 import { useBuilderStateContext } from '@/app/builder/builder-hooks';
@@ -10,6 +11,13 @@ import {
   ToolWrapper,
 } from '@/components/custom/markdown-input/tools';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Popover,
   PopoverContent,
@@ -20,10 +28,49 @@ import { cn } from '@/lib/utils';
 
 export const NoteTools = ({ editor, currentColor, id }: NoteToolsProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [updateNoteColor, deleteNote] = useBuilderStateContext((state) => [
+  const [
+    updateNoteColor,
+    deleteNote,
+    note,
+    flowVersion,
+    setNoteResolved,
+    attachNoteToStep,
+    detachNoteFromStep,
+  ] = useBuilderStateContext((state) => [
     state.updateNoteColor,
     state.deleteNote,
+    state.getNoteById(id),
+    state.flowVersion,
+    state.setNoteResolved,
+    state.attachNoteToStep,
+    state.detachNoteFromStep,
   ]);
+  const reactFlow = useReactFlow();
+  if (!note) {
+    return null;
+  }
+  const steps = flowStructureUtil.getAllSteps(flowVersion.trigger);
+
+  const handleAttachToStep = (stepName: string) => {
+    const stepNode = reactFlow.getNode(stepName);
+    const noteNode = reactFlow.getNode(id);
+    if (!stepNode || !noteNode) {
+      return;
+    }
+    attachNoteToStep(id, stepName, {
+      x: noteNode.position.x - stepNode.position.x,
+      y: noteNode.position.y - stepNode.position.y,
+    });
+  };
+
+  const handleDetachFromStep = () => {
+    const noteNode = reactFlow.getNode(id);
+    if (!noteNode) {
+      return;
+    }
+    detachNoteFromStep(id, noteNode.position);
+  };
+
   return (
     <div
       ref={containerRef}
@@ -40,6 +87,60 @@ export const NoteTools = ({ editor, currentColor, id }: NoteToolsProps) => {
           />
           <MarkdownTools editor={editor} />
           <Separator orientation="vertical" className="h-[30px]"></Separator>
+          <ToolWrapper
+            tooltip={note.resolved ? t('Reopen note') : t('Mark as resolved')}
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                setNoteResolved(id, !note.resolved);
+              }}
+            >
+              <CheckCircle2
+                className={cn('size-4', {
+                  'text-primary': note.resolved,
+                })}
+              />
+            </Button>
+          </ToolWrapper>
+          <DropdownMenu>
+            <ToolWrapper
+              tooltip={
+                note.stepName ? t('Linked to a step') : t('Link to a step')
+              }
+            >
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon">
+                  {note.stepName ? (
+                    <Link2 className="size-4 text-primary" />
+                  ) : (
+                    <Link2 className="size-4" />
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+            </ToolWrapper>
+            <DropdownMenuContent className="w-56 max-h-64 overflow-y-auto">
+              {note.stepName && (
+                <>
+                  <DropdownMenuItem onClick={handleDetachFromStep}>
+                    <Link2Off className="mr-2 h-4 w-4" />
+                    <span>{t('Detach from step')}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              {steps.map((step) => (
+                <DropdownMenuItem
+                  key={step.name}
+                  disabled={step.name === note.stepName}
+                  onClick={() => handleAttachToStep(step.name)}
+                >
+                  <span className="truncate">{step.displayName}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <ToolWrapper tooltip={t('Delete')}>
             <Button
               variant="ghost"

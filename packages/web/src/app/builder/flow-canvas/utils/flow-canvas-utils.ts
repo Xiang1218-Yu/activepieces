@@ -676,20 +676,34 @@ const getStepStatus = (
   );
   return stepOutput?.status;
 };
-function buildNotesGraph(notes: Note[]): ApGraph {
+function buildNotesGraph(notes: Note[], stepNodes: ApStepNode[]): ApGraph {
+  const stepPositionByName = new Map(
+    stepNodes.map((node) => [node.id, node.position]),
+  );
   return {
-    nodes: notes.map((note) => ({
-      id: note.id,
-      type: ApNodeType.NOTE,
-      draggable: true,
-      position: note.position,
-      data: {
-        content: note.content,
-        creatorId: note.ownerId,
-        color: note.color,
-        size: note.size,
-      },
-    })),
+    nodes: notes.map((note) => {
+      const attachedStepPosition = note.stepName
+        ? stepPositionByName.get(note.stepName)
+        : undefined;
+      const position = attachedStepPosition
+        ? {
+            x: attachedStepPosition.x + note.position.x,
+            y: attachedStepPosition.y + note.position.y,
+          }
+        : note.position;
+      return {
+        id: note.id,
+        type: ApNodeType.NOTE,
+        draggable: true,
+        position,
+        data: {
+          content: note.content,
+          creatorId: note.ownerId,
+          color: note.color,
+          size: note.size,
+        },
+      };
+    }),
     edges: [],
   };
 }
@@ -731,7 +745,6 @@ export const flowCanvasUtils = {
       step: version.trigger,
       orientation,
     });
-    const notesGraph = buildNotesGraph(notes);
     const graphEndWidget = stepsGraph.nodes.findLast(
       (node) => node.type === ApNodeType.GRAPH_END_WIDGET,
     ) as ApGraphEndNode;
@@ -744,6 +757,10 @@ export const flowCanvasUtils = {
       orientation === 'horizontal'
         ? transposeGraphPositions(stepsGraph)
         : stepsGraph;
+    const stepNodes = orientedGraph.nodes.filter(
+      (node): node is ApStepNode => node.type === ApNodeType.STEP,
+    );
+    const notesGraph = buildNotesGraph(notes, stepNodes);
     return mergeGraph(orientedGraph, notesGraph);
   },
   createFocusStepInGraphParams,

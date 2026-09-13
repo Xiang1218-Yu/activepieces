@@ -4,12 +4,15 @@ import {
   FlowOperationType,
   NoteColorVariant,
   Note,
+  UpdateNoteRequest,
+  flowStructureUtil,
 } from '@activepieces/shared';
 import { StoreApi } from 'zustand';
 
 import { authenticationSession } from '@/lib/authentication-session';
 
 import { BuilderState } from '../builder-hooks';
+import { flowCanvasUtils } from '../flow-canvas/utils/flow-canvas-utils';
 
 export enum NoteDragOverlayMode {
   CREATE = 'create',
@@ -17,13 +20,26 @@ export enum NoteDragOverlayMode {
 }
 
 export type NotesState = {
-  addNote: (request: Omit<AddNoteRequest, 'id'>) => void;
+  addNote: (
+    request: Omit<
+      AddNoteRequest,
+      'id' | 'resolved' | 'lastUpdatedBy' | 'stepName'
+    >,
+  ) => void;
   deleteNote: (id: string) => void;
   moveNote: (id: string, position: { x: number; y: number }) => void;
   resizeNote: (id: string, size: { width: number; height: number }) => void;
   draggedNote: Note | null;
   updateContent: (id: string, content: string) => void;
   updateNoteColor: (id: string, color: NoteColorVariant) => void;
+  setNoteResolved: (id: string, resolved: boolean) => void;
+  attachNoteToStep: (
+    id: string,
+    stepName: string,
+    position: { x: number; y: number },
+  ) => void;
+  detachNoteFromStep: (id: string, position: { x: number; y: number }) => void;
+  detachNotesFromSteps: (stepNames: string[]) => void;
   setDraggedNote: (
     note: Note | null,
     mode: NoteDragOverlayMode | null,
@@ -37,10 +53,37 @@ export type NotesState = {
   draggedNoteOffset: { x: number; y: number } | null;
 };
 
+const buildUpdateNoteRequest = (
+  note: Note,
+  updates: Partial<UpdateNoteRequest>,
+): UpdateNoteRequest => {
+  return {
+    id: note.id,
+    content: note.content,
+    color: note.color,
+    position: note.position,
+    size: note.size,
+    resolved: note.resolved,
+    lastUpdatedBy: authenticationSession.getCurrentUserId() ?? null,
+    stepName: note.stepName,
+    ...updates,
+  };
+};
+
 export const createNotesState = (
   get: StoreApi<BuilderState>['getState'],
   set: StoreApi<BuilderState>['setState'],
 ): NotesState => {
+  const updateNote = (id: string, updates: Partial<UpdateNoteRequest>) => {
+    const note = get().getNoteById(id);
+    if (!note) {
+      return;
+    }
+    get().applyOperation({
+      type: FlowOperationType.UPDATE_NOTE,
+      request: buildUpdateNoteRequest(note, updates),
+    });
+  };
   return {
     noteDragOverlayMode: null,
     setNoteDragOverlayMode: (
@@ -48,25 +91,29 @@ export const createNotesState = (
     ) => {
       set({ noteDragOverlayMode });
     },
-    addNote: (request: Omit<AddNoteRequest, 'id'>) => {
+    addNote: (request) => {
       const id = apId();
       get().applyOperation({
         type: FlowOperationType.ADD_NOTE,
         request: {
+          resolved: false,
+          lastUpdatedBy: null,
+          stepName: null,
           ...request,
           id,
         },
       });
-      const notes = get().flowVersion.notes;
-      const noteIndex = notes.findIndex((note) => note.id === id);
-      if (noteIndex !== -1) {
-        notes[noteIndex] = {
-          ...notes[noteIndex],
-          ownerId: authenticationSession.getCurrentUserId() ?? null,
+      const notes = get().flowVersion.notes.map((note) => {
+        if (note.id !== id) {
+          return note;
+        }
+        const currentUserId = authenticationSession.getCurrentUserId() ?? null;
+        return {
+          ...note,
+          ownerId: currentUserId,
+          lastUpdatedBy: currentUserId,
         };
-      }
-      notes[noteIndex].ownerId =
-        authenticationSession.getCurrentUserId() ?? null;
+      });
       set(() => {
         return {
           flowVersion: {
@@ -79,17 +126,7 @@ export const createNotesState = (
       });
     },
     updateContent: (id: string, content: string) => {
-      const note = get().getNoteById(id);
-      if (!note) {
-        return;
-      }
-      get().applyOperation({
-        type: FlowOperationType.UPDATE_NOTE,
-        request: {
-          ...note,
-          content,
-        },
-      });
+      updateNote(id, { content });
     },
     deleteNote: (id: string) => {
       get().applyOperation({
@@ -106,17 +143,7 @@ export const createNotesState = (
           draggedNote: null,
         };
       });
-      const note = get().getNoteById(id);
-      if (!note) {
-        return;
-      }
-      get().applyOperation({
-        type: FlowOperationType.UPDATE_NOTE,
-        request: {
-          ...note,
-          position,
-        },
-      });
+      updateNote(id, { position });
     },
     resizeNote: (id: string, size: { width: number; height: number }) => {
       set(() => {
@@ -125,16 +152,59 @@ export const createNotesState = (
           draggedNote: null,
         };
       });
-      const note = get().getNoteById(id);
-      if (!note) {
+      updateNote(id, { size });
+    },
+    setNoteResolved: (id: string, resolved: boolean) => {
+      if (get().readonly) {
         return;
       }
-      get().applyOperation({
-        type: FlowOperationType.UPDATE_NOTE,
-        request: {
-          ...note,
-          size,
-        },
+      updateNote(id, { resolved });
+    },
+    attachNoteToStep: (
+      id: string,
+      stepName: string,
+      position: { x: number; y: number },
+    ) => {
+      updateNote(id, { stepName, position });
+    },
+    detachNoteFromStep: (id: string, position: { x: number; y: number }) => {
+      updateNote(id, { stepName: null, position });
+    },
+    detachNotesFromSteps: (stepNames: string[]) => {
+      const { flowVersion, canvasOrientation } = get();
+      const removedStepNames = new Set(
+        stepNames.flatMap((stepName) => {
+          const step = flowStructureUtil.getStep(
+            stepName,
+            flowVersion.trigger,
+          );
+          if (!step) {
+            return [];
+          }
+          return flowStructureUtil
+            .getAllChildSteps(step)
+            .map((childStep) => childStep.name);
+        }),
+      );
+      const attachedNotes = flowVersion.notes.filter(
+        (note) => note.stepName && removedStepNames.has(note.stepName),
+      );
+      if (attachedNotes.length === 0) {
+        return;
+      }
+      const graph = flowCanvasUtils.createFlowGraph({
+        version: flowVersion,
+        notes: flowVersion.notes,
+        orientation: canvasOrientation,
+      });
+      attachedNotes.forEach((note) => {
+        const noteNode = graph.nodes.find((node) => node.id === note.id);
+        if (noteNode) {
+          updateNote(note.id, {
+            stepName: null,
+            position: noteNode.position,
+          });
+        }
       });
     },
     draggedNote: null,
@@ -154,17 +224,7 @@ export const createNotesState = (
       return get().flowVersion.notes.find((note) => note.id === id) ?? null;
     },
     updateNoteColor: (id: string, color: NoteColorVariant) => {
-      const note = get().getNoteById(id);
-      if (!note) {
-        return;
-      }
-      get().applyOperation({
-        type: FlowOperationType.UPDATE_NOTE,
-        request: {
-          ...note,
-          color,
-        },
-      });
+      updateNote(id, { color });
     },
   };
 };

@@ -191,6 +191,7 @@ function cleanOperation(operation: FlowOperationRequest): FlowOperationRequest {
             request: {
                 ...operation.request,
                 trigger,
+                preserveNoteAuthors: false,
             },
         }
     }

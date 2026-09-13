@@ -323,7 +323,12 @@ const createGraphKey = (
       }-${branchesNames}-${childrenKey}}`;
     }, '');
   const notesGraphKey = notes
-    .map((note) => `${note.id}-${note.position.x}-${note.position.y}`)
+    .map(
+      (note) =>
+        `${note.id}-${note.position.x}-${note.position.y}-${
+          note.stepName ?? ''
+        }`,
+    )
     .join('-');
   return `${flowVersion.id}-${flowGraphKey}-${notesGraphKey}-${selectedStep}`;
 };

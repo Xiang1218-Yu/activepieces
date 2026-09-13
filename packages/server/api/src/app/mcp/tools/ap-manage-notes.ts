@@ -73,6 +73,9 @@ export const apManageNotesTool = ({ mcp, userId }: McpToolContext, log: FastifyB
                             color: color ?? NoteColorVariant.YELLOW,
                             position: resolvedPosition,
                             size: resolvedSize,
+                            resolved: false,
+                            lastUpdatedBy: null,
+                            stepName: null,
                         },
                     }
                     break
@@ -93,7 +96,9 @@ export const apManageNotesTool = ({ mcp, userId }: McpToolContext, log: FastifyB
                             color: color ?? existing.color,
                             position: position ?? existing.position,
                             size: size ?? existing.size,
-                            ownerId: existing.ownerId,
+                            resolved: existing.resolved ?? false,
+                            lastUpdatedBy: existing.lastUpdatedBy ?? null,
+                            stepName: existing.stepName ?? null,
                         },
                     }
                     break

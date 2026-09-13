@@ -111,10 +111,11 @@ export const flowVersionValidationUtil = (log: FastifyBaseLogger) => ({
             case FlowOperationType.IMPORT_FLOW:{
                 assertImportedStepNamesAreSafe(clonedRequest.request.trigger)
                 const notes = clonedRequest.request.notes
-                if (!isNil(notes)) {
+                if (!isNil(notes) && !clonedRequest.request.preserveNoteAuthors) {
                     clonedRequest.request.notes = notes.map(note => ({
                         ...note,
                         ownerId: userId,
+                        lastUpdatedBy: userId,
                     }))
                 }
                 break

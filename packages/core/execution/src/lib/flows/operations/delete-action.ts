@@ -2,11 +2,13 @@ import { FlowAction, FlowActionType } from '../actions/action'
 import { FlowVersion } from '../flow-version'
 import { flowStructureUtil } from '../util/flow-structure-util'
 import { DeleteActionRequest } from './index'
+import { notesOperations } from './notes-operations'
 
 function _deleteAction(
     flowVersion: FlowVersion,
     request: DeleteActionRequest,
 ): FlowVersion {
+    const removedStepNames = getRemovedStepNames(flowVersion, request)
     let clonedVersion: FlowVersion = flowVersion
     for (const name of request.names) {
         clonedVersion = flowStructureUtil.transferFlow(clonedVersion, (parentStep) => {
@@ -51,7 +53,17 @@ function _deleteAction(
             return parentStep
         })
     }
-    return clonedVersion
+    return notesOperations.detachNotesFromSteps(clonedVersion, removedStepNames)
+}
+
+function getRemovedStepNames(flowVersion: FlowVersion, request: DeleteActionRequest): string[] {
+    return request.names.flatMap((name) => {
+        const step = flowStructureUtil.getStep(name, flowVersion.trigger)
+        if (!step) {
+            return []
+        }
+        return flowStructureUtil.getAllChildSteps(step).map((removedStep) => removedStep.name)
+    })
 }
 
 export { _deleteAction }

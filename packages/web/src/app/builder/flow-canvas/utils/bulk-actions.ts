@@ -37,10 +37,16 @@ export function deleteSelectedNodes({
   applyOperation,
   selectedStep,
   exitStepSettings,
+  detachNotesFromSteps,
 }: Pick<
   BuilderState,
-  'selectedNodes' | 'applyOperation' | 'selectedStep' | 'exitStepSettings'
+  | 'selectedNodes'
+  | 'applyOperation'
+  | 'selectedStep'
+  | 'exitStepSettings'
+  | 'detachNotesFromSteps'
 >) {
+  detachNotesFromSteps(selectedNodes);
   applyOperation({
     type: FlowOperationType.DELETE_ACTION,
     request: {

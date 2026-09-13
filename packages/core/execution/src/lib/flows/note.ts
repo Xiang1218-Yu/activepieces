@@ -23,5 +23,8 @@ export const Note = z.object({
     }),
     createdAt: z.string(),
     updatedAt: z.string(),
+    resolved: z.boolean().default(false),
+    lastUpdatedBy: Nullable(z.string()).default(null),
+    stepName: Nullable(z.string()).default(null),
 })
 export type Note = z.infer<typeof Note>

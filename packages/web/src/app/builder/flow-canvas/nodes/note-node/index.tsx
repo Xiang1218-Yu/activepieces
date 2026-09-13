@@ -117,7 +117,7 @@ const ApNoteCanvasNode = (props: NodeProps & Omit<ApNoteNode, 'position'>) => {
 ApNoteCanvasNode.displayName = 'ApNoteCanvasNode';
 
 const NoteContent = ({ note, isDragging }: NoteContentProps) => {
-  const { id, ownerId: creatorId, color, size } = note;
+  const { id, color, size, resolved } = note;
   const { width, height } = size;
   const [localNote, setLocalNote] = useState(note);
   const [updateContent, readonly] = useBuilderStateContext((state) => [
@@ -138,6 +138,9 @@ const NoteContent = ({ note, isDragging }: NoteContentProps) => {
       className={cn(
         'rounded-md border-solid shadow-sm p-2 ',
         NoteColorVariantClassName[color],
+        {
+          'opacity-60': resolved,
+        },
       )}
       style={{
         width: `${width}px`,
@@ -210,7 +213,7 @@ const NoteContent = ({ note, isDragging }: NoteContentProps) => {
             </TooltipContent>
           )}
         </Tooltip>
-        <NoteFooter id={id} isDragging={isDragging} creatorId={creatorId} />
+        <NoteFooter id={id} isDragging={isDragging} />
       </div>
     </div>
   );

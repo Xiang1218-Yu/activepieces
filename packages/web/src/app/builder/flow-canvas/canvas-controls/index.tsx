@@ -111,6 +111,10 @@ const CanvasControls = ({
         content: '',
         createdAt: '',
         updatedAt: '',
+        ownerId: null,
+        resolved: false,
+        lastUpdatedBy: null,
+        stepName: null,
         position: { x: 0, y: 0 },
         size: {
           width: flowCanvasConsts.NOTE_CREATION_OVERLAY_WIDTH,

@@ -1013,7 +1013,10 @@ async function createNewDraftIfVersionIsPublished({
         const lockedVersion = lastVersion
         const operations: FlowOperationRequest[] = [{
             type: FlowOperationType.IMPORT_FLOW,
-            request: lockedVersion,
+            request: {
+                ...lockedVersion,
+                preserveNoteAuthors: true,
+            },
         }]
         if (
             lockedVersion.trigger.type === FlowTriggerType.PIECE &&

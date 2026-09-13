@@ -163,6 +163,9 @@ function buildOnboardingNote({
     size: { width: 300, height: 298 },
     createdAt: timestamp,
     updatedAt: timestamp,
+    resolved: false,
+    lastUpdatedBy: null,
+    stepName: null,
   };
 }
 
@@ -188,6 +191,9 @@ function buildSampleDataNote({
     },
     createdAt: timestamp,
     updatedAt: timestamp,
+    resolved: false,
+    lastUpdatedBy: null,
+    stepName: null,
   };
 }
 

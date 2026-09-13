@@ -59,7 +59,7 @@ export const DeleteBranchRequest = z.object({
     stepName: z.string(),
 })
 
-export const UpdateNoteRequest = Note.omit({ createdAt: true, updatedAt: true })
+export const UpdateNoteRequest = Note.omit({ createdAt: true, updatedAt: true, ownerId: true })
 export const DeleteNoteRequest = z.object({
     id: z.string(),
 })
@@ -125,6 +125,7 @@ export const ImportFlowRequest = z.object({
     trigger: FlowTrigger,
     schemaVersion: Nullable(z.string()),
     notes: Nullable(z.array(Note)),
+    preserveNoteAuthors: z.boolean().optional(),
 })
 
 export type ImportFlowRequest = z.infer<typeof ImportFlowRequest>
@@ -332,10 +333,12 @@ export const flowOperations = {
         let clonedVersion: FlowVersion = JSON.parse(JSON.stringify(flowVersion))
         switch (operation.type) {
             case FlowOperationType.MOVE_ACTION: {
+                const notesBeforeMove = clonedVersion.notes
                 const operations: FlowOperationRequest[] = _moveAction(clonedVersion, operation.request)
                 operations.forEach((operation) => {
                     clonedVersion = flowOperations.apply(clonedVersion, operation)
                 })
+                clonedVersion = notesOperations.restoreMovedStepNoteAttachments(clonedVersion, notesBeforeMove)
                 break
             }
             case FlowOperationType.CHANGE_NAME:

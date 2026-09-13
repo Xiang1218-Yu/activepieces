@@ -23,6 +23,7 @@ export const useHandleKeyPressOnCanvas = () => {
     showMinimap,
     setDraggedNote,
     setDraggedStep,
+    detachNotesFromSteps,
   ] = useBuilderStateContext((state) => [
     state.selectedNodes,
     state.flowVersion,
@@ -34,6 +35,7 @@ export const useHandleKeyPressOnCanvas = () => {
     state.showMinimap,
     state.setDraggedNote,
     state.setActiveDraggingStep,
+    state.detachNotesFromSteps,
   ]);
 
   const handleKeyDown = useCallback(
@@ -86,6 +88,7 @@ export const useHandleKeyPressOnCanvas = () => {
               selectedStep,
               selectedNodes,
               applyOperation,
+              detachNotesFromSteps,
             });
           }
         },

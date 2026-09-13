@@ -228,7 +228,16 @@ function handleNoteDragEnd({
           x: element.getBoundingClientRect().left,
           y: element.getBoundingClientRect().top,
         });
-        moveNote(draggedNote.id, positionOnCanvas);
+        const attachedStepNode = draggedNote.stepName
+          ? reactFlow.getNode(draggedNote.stepName)
+          : undefined;
+        const position = attachedStepNode
+          ? {
+              x: positionOnCanvas.x - attachedStepNode.position.x,
+              y: positionOnCanvas.y - attachedStepNode.position.y,
+            }
+          : positionOnCanvas;
+        moveNote(draggedNote.id, position);
       }
     }
   }
