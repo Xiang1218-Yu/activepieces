@@ -81,6 +81,7 @@ import { flowRunModule } from './flows/flow-run/flow-run-module'
 import { pieceUpgradeModule } from './flows/flow-version/piece-upgrade.module'
 import { flowModule } from './flows/flow.module'
 import { folderModule } from './flows/folder/folder.module'
+import { flowTestScenarioModule } from './flows/test-scenario/flow-test-scenario.module'
 import { domainHelper } from './helper/domain-helper'
 import { exceptionHandler } from './helper/exception-handler'
 import { clientLogsModule } from './helper/logs/client-logs.module'
@@ -236,6 +237,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
     await app.register(pieceModule)
     await app.register(collaborativeModule)
     await app.register(flowModule)
+    await app.register(flowTestScenarioModule)
     await app.register(flowRunModule)
     await app.register(webhookModule)
     await app.register(appConnectionModule)

@@ -96,6 +96,7 @@ export type ApErrorParams =
     | ExecutionStateMissingParams
     | GenericErrorParams
     | SandboxCapacityExceededParams
+    | FlowTestScenarioConnectionBlockedParams
 
 export type TriggerExecutionFailedParams = BaseErrorParams<ErrorCode.TRIGGER_EXECUTION_FAILED, {
     flowId: FlowId
@@ -322,6 +323,14 @@ export type ValidationErrorParams = BaseErrorParams<
 ErrorCode.VALIDATION,
 {
     message: string
+}
+>
+
+export type FlowTestScenarioConnectionBlockedParams = BaseErrorParams<
+ErrorCode.FLOW_TEST_SCENARIO_CONNECTION_BLOCKED,
+{
+    connectionExternalId: string
+    flowRunId: string
 }
 >
 
@@ -591,6 +600,7 @@ export enum ErrorCode {
     USER_IS_INACTIVE = 'USER_IS_INACTIVE',
     USER_NOT_FOUND_ON_PLATFORM = 'USER_NOT_FOUND_ON_PLATFORM',
     VALIDATION = 'VALIDATION',
+    FLOW_TEST_SCENARIO_CONNECTION_BLOCKED = 'FLOW_TEST_SCENARIO_CONNECTION_BLOCKED',
     FILE_TOO_LARGE = 'FILE_TOO_LARGE',
     INVALID_LICENSE_KEY = 'INVALID_LICENSE_KEY',
     EMAIL_ALREADY_HAS_ACTIVATION_KEY = 'EMAIL_ALREADY_HAS_ACTIVATION_KEY',

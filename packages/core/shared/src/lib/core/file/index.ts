@@ -82,6 +82,12 @@ export enum FileType {
      * Stored at the configured location (S3 when available). Kept indefinitely.
      */
     FLOW_BUNDLE = 'FLOW_BUNDLE',
+    /**
+     * Input file attached to a flow test scenario and referenced by its fixed
+     * trigger input. Kept indefinitely; when such a file goes missing the
+     * scenario is marked as not executable instead of failing at run time.
+     */
+    FLOW_TEST_SCENARIO_INPUT = 'FLOW_TEST_SCENARIO_INPUT',
 }
 export enum FileCompression {
     NONE = 'NONE',

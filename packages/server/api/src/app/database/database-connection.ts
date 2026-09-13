@@ -40,6 +40,7 @@ import { FlowEntity } from '../flows/flow/flow.entity'
 import { FlowRunEntity } from '../flows/flow-run/flow-run-entity'
 import { FlowVersionEntity } from '../flows/flow-version/flow-version-entity'
 import { FolderEntity } from '../flows/folder/folder.entity'
+import { FlowTestScenarioEntity, FlowTestScenarioRunEntity } from '../flows/test-scenario/flow-test-scenario-entity'
 import { system } from '../helper/system/system'
 import { AppSystemProp } from '../helper/system/system-props'
 import { KnowledgeBaseChunkEntity } from '../knowledge-base/knowledge-base-chunk.entity'
@@ -83,6 +84,8 @@ function getEntities(): EntitySchema<unknown>[] {
         FlowEntity,
         FlowVersionEntity,
         FlowRunEntity,
+        FlowTestScenarioEntity,
+        FlowTestScenarioRunEntity,
         ProjectEntity,
         StoreEntryEntity,
         UserEntity,
