@@ -10,6 +10,18 @@ export class PromiseQueue {
     this.run();
   }
 
+  addAndWait<T>(promise: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.add(async () => {
+        try {
+          resolve(await promise());
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+  }
+
   halt() {
     this.halted = true;
   }

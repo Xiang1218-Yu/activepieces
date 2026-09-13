@@ -10,6 +10,7 @@ import { useTheme } from '@/components/providers/theme-provider';
 import {
   ApTableFooter,
   ApTableHeader,
+  UnsavedChangesGuard,
   useTableState,
   useTableLock,
   useTableColumns,
@@ -122,6 +123,7 @@ const ApTableEditorPage = () => {
 
   return (
     <div className="w-full flex flex-col justify-start items-start h-full">
+      <UnsavedChangesGuard />
       <div className="flex items-center justify-between w-full pr-4 border-b">
         <ApTableHeader
           onBack={handleBack}

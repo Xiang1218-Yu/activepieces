@@ -1,5 +1,5 @@
-import { Permission, SeekPage } from '@activepieces/core-utils'
-import { CreateRecordsRequest, DeleteRecordsRequest, ListRecordsRequest, PopulatedRecord, PrincipalType, SERVICE_KEY_SECURITY_OPENAPI, UpdateRecordRequest } from '@activepieces/shared'
+import { isNil, Permission, SeekPage } from '@activepieces/core-utils'
+import { BatchUpdateRecordsRequest, BatchUpdateRecordsResponse, CreateRecordsRequest, DeleteRecordsRequest, ListRecordsRequest, PopulatedRecord, PrincipalType, SERVICE_KEY_SECURITY_OPENAPI, UpdateRecordRequest } from '@activepieces/shared'
 import { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { StatusCodes } from 'http-status-codes'
 import { z } from 'zod'
@@ -53,6 +53,24 @@ export const recordController: FastifyPluginAsyncZod = async (fastify) => {
             logger: request.log,
             authorization: request.headers.authorization as string,
             agentUpdate: request.body.agentUpdate ?? false,
+        }, 'updated')
+    })
+
+    fastify.post('/batch', BatchUpdateRequest, async (request, reply) => {
+        const response = await recordService.batchUpdate({
+            request: request.body,
+            projectId: request.projectId,
+        })
+        await reply.status(StatusCodes.OK).send(response)
+        const updatedRecords = response.results
+            .map((result) => (result.status === 'success' ? result.record : undefined))
+            .filter((record): record is PopulatedRecord => !isNil(record))
+        await recordSideEffects(fastify.log).handleRecordsEvent({
+            tableId: request.body.tableId,
+            projectId: request.projectId,
+            records: updatedRecords,
+            logger: request.log,
+            authorization: request.headers.authorization as string,
         }, 'updated')
     })
 
@@ -162,6 +180,29 @@ const DeleteRecordRequest = {
         body: DeleteRecordsRequest,
         response: {
             [StatusCodes.OK]: z.array(PopulatedRecord),
+        },
+    },
+}
+
+const BatchUpdateRequest = {
+    config: {
+        security: securityAccess.project([PrincipalType.USER, PrincipalType.ENGINE, PrincipalType.SERVICE], Permission.WRITE_TABLE, {
+            type: ProjectResourceType.TABLE,
+            tableName: TableEntity,
+            entitySourceType: EntitySourceType.BODY,
+            lookup: {
+                paramKey: 'tableId',
+                entityField: 'id',
+            },
+        }),
+    },
+    schema: {
+        tags: ['records'],
+        security: [SERVICE_KEY_SECURITY_OPENAPI],
+        description: 'Batch update records, returning a per-record result so one failing record does not reject the rest',
+        body: BatchUpdateRecordsRequest,
+        response: {
+            [StatusCodes.OK]: BatchUpdateRecordsResponse,
         },
     },
 }

@@ -45,6 +45,7 @@ import { useAuthorization } from '@/hooks/authorization-hooks';
 import { downloadFile } from '@/lib/dom-utils';
 
 import { tablesApi } from '../api/tables-api';
+import { tableCellStateUtils } from '../stores/store/ap-tables-client-state';
 import { tablesUtils } from '../utils/utils';
 
 import { useRefreshTableState, useTableState } from './ap-table-state-provider';
@@ -70,6 +71,9 @@ export function ApTableHeader({
     table,
     renameTable,
     deleteRecords,
+    cellStates,
+    savePendingChanges,
+    discardChanges,
   ] = useTableState((state) => [
     state.selectedRecords,
     state.setSelectedRecords,
@@ -78,7 +82,12 @@ export function ApTableHeader({
     state.table,
     state.renameTable,
     state.deleteRecords,
+    state.cellStates,
+    state.savePendingChanges,
+    state.discardChanges,
   ]);
+  const pendingChangesCount =
+    tableCellStateUtils.pendingChangesCount(cellStates);
   const [isImportTableDialogOpen, setIsImportTableDialogOpen] = useState(false);
   // refresh in place after an import; a full-page reload would break the
   // embed SDK handshake inside an iframe
@@ -223,7 +232,30 @@ export function ApTableHeader({
 
   const rightContent = (
     <div className="flex items-center gap-2">
-      {isSaving && (
+      {pendingChangesCount > 0 && canEdit && (
+        <div className="flex items-center gap-2 animate-in fade-in">
+          <span className="text-sm text-muted-foreground">
+            {t('unsavedChangesCount', { count: pendingChangesCount })}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={discardChanges}
+            disabled={isSaving}
+          >
+            {t('Discard')}
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => savePendingChanges()}
+            disabled={isSaving}
+            loading={isSaving}
+          >
+            {t('Save')}
+          </Button>
+        </div>
+      )}
+      {isSaving && pendingChangesCount === 0 && (
         <div className="flex items-center gap-2 text-muted-foreground animate-in fade-in">
           <RefreshCw className="h-4 w-4 animate-spin" />
           <span className="text-sm">{t('Saving...')}</span>

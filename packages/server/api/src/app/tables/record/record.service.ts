@@ -1,5 +1,5 @@
-import { ActivepiecesError, apId, chunk, Cursor, ErrorCode, isNil, SeekPage } from '@activepieces/core-utils'
-import { Cell, CreateRecordsRequest, Field, FieldType, Filter, FilterOperator, PopulatedRecord, TableWebhookEventType, UpdateRecordRequest } from '@activepieces/shared'
+import { ActivepiecesError, apId, chunk, Cursor, ErrorCode, isNil, SeekPage, tryCatch } from '@activepieces/core-utils'
+import { BatchUpdateCellError, BatchUpdateRecordResult, BatchUpdateRecordsRequest, BatchUpdateRecordsResponse, Cell, CreateRecordsRequest, Field, FieldType, Filter, FilterOperator, PopulatedRecord, tableCellValidation, TableWebhookEventType, UpdateRecordRequest } from '@activepieces/shared'
 import { FastifyBaseLogger } from 'fastify'
 import { EntityManager, In } from 'typeorm'
 import { repoFactory } from '../../core/db/repo-factory'
@@ -225,6 +225,31 @@ export const recordService = {
         })
     },
 
+    async batchUpdate({
+        request,
+        projectId,
+    }: BatchUpdateParams): Promise<BatchUpdateRecordsResponse> {
+        const fields = await fieldService.getAll({
+            tableId: request.tableId,
+            projectId,
+        })
+        const results: BatchUpdateRecordResult[] = []
+        for (const item of request.records) {
+            const { data: result, error } = await tryCatch(() => updateRecordFromBatchItem({ item, tableId: request.tableId, projectId, fields }))
+            if (error) {
+                results.push({
+                    recordId: item.recordId,
+                    status: 'error',
+                    error: { code: 'INTERNAL' },
+                })
+            }
+            else {
+                results.push(result)
+            }
+        }
+        return { results }
+    },
+
     async delete({
         ids,
         projectId,
@@ -284,6 +309,95 @@ export const recordService = {
             })
         }
     },
+}
+
+async function updateRecordFromBatchItem({ item, tableId, projectId, fields }: UpdateRecordFromBatchItemParams): Promise<BatchUpdateRecordResult> {
+    const cellErrors = validateBatchItemCells({ cells: item.cells, fields })
+    if (cellErrors.length > 0) {
+        return {
+            recordId: item.recordId,
+            status: 'error',
+            error: { code: 'VALIDATION', cells: cellErrors },
+        }
+    }
+    return transaction(async (entityManager: EntityManager) => {
+        const record = await entityManager.getRepository(RecordEntity).findOne({
+            where: { id: item.recordId, projectId, tableId },
+            lock: { mode: 'pessimistic_write' },
+        })
+        if (isNil(record)) {
+            return {
+                recordId: item.recordId,
+                status: 'error',
+                error: { code: 'NOT_FOUND' },
+            }
+        }
+        const existingCells = await entityManager.getRepository(CellEntity).find({
+            where: { recordId: record.id, projectId },
+        })
+        const conflictingCells = findConflictingCells({ cells: item.cells, existingCells })
+        if (conflictingCells.length > 0) {
+            return {
+                recordId: item.recordId,
+                status: 'error',
+                error: { code: 'CONFLICT', cells: conflictingCells },
+                record: formatRecords([{ ...record, cells: existingCells }], fields)[0],
+            }
+        }
+        const cellsToUpsert = item.cells.map((cellData) => ({
+            recordId: record.id,
+            fieldId: cellData.fieldId,
+            projectId,
+            value: cellData.value ?? '',
+            id: apId(),
+            updated: new Date().toISOString(),
+        }))
+        await entityManager.getRepository(CellEntity).upsert(cellsToUpsert, ['projectId', 'fieldId', 'recordId'])
+        const updatedCells = await entityManager.getRepository(CellEntity).find({
+            where: { recordId: record.id, projectId },
+        })
+        return {
+            recordId: item.recordId,
+            status: 'success',
+            record: formatRecords([{ ...record, cells: updatedCells }], fields)[0],
+        }
+    })
+}
+
+function validateBatchItemCells({ cells, fields }: { cells: BatchUpdateItemCell[], fields: Field[] }): BatchUpdateCellError[] {
+    const fieldById = new Map(fields.map((field) => [field.id, field]))
+    return cells
+        .map((cell): BatchUpdateCellError | null => {
+            const field = fieldById.get(cell.fieldId)
+            if (isNil(field)) {
+                return { fieldId: cell.fieldId, code: 'UNKNOWN_FIELD' }
+            }
+            const validationError = tableCellValidation.validate({
+                fieldType: field.type,
+                value: cell.value ?? '',
+                options: field.type === FieldType.STATIC_DROPDOWN ? field.data.options.map((option) => option.value) : undefined,
+            })
+            if (isNil(validationError)) {
+                return null
+            }
+            return { fieldId: cell.fieldId, code: 'VALIDATION', validationError }
+        })
+        .filter((error): error is BatchUpdateCellError => !isNil(error))
+}
+
+function findConflictingCells({ cells, existingCells }: { cells: BatchUpdateItemCell[], existingCells: Cell[] }): BatchUpdateCellError[] {
+    return cells
+        .filter((cell) => {
+            if (isNil(cell.baseUpdated)) {
+                return false
+            }
+            const existingCell = existingCells.find((existing) => existing.fieldId === cell.fieldId)
+            if (isNil(existingCell)) {
+                return false
+            }
+            return new Date(existingCell.updated).getTime() !== new Date(cell.baseUpdated).getTime()
+        })
+        .map((cell) => ({ fieldId: cell.fieldId, code: 'CONFLICT' }))
 }
 
 function prepareRecordInsertions(
@@ -519,6 +633,20 @@ type UpdateParams = {
     id: string
     projectId: string
     request: UpdateRecordRequest
+}
+
+type BatchUpdateParams = {
+    request: BatchUpdateRecordsRequest
+    projectId: string
+}
+
+type BatchUpdateItemCell = BatchUpdateRecordsRequest['records'][number]['cells'][number]
+
+type UpdateRecordFromBatchItemParams = {
+    item: BatchUpdateRecordsRequest['records'][number]
+    tableId: string
+    projectId: string
+    fields: Field[]
 }
 
 type DeleteParams = {

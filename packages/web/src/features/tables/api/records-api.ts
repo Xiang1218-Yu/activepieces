@@ -1,5 +1,7 @@
 import { SeekPage } from '@activepieces/core-utils';
 import {
+  BatchUpdateRecordsRequest,
+  BatchUpdateRecordsResponse,
   CreateRecordsRequest,
   DeleteRecordsRequest,
   ListRecordsRequest,
@@ -26,6 +28,12 @@ export const recordsApi = {
 
   update(id: string, request: UpdateRecordRequest): Promise<PopulatedRecord> {
     return api.post<PopulatedRecord>(`/v1/records/${id}`, request);
+  },
+
+  batchUpdate(
+    request: BatchUpdateRecordsRequest,
+  ): Promise<BatchUpdateRecordsResponse> {
+    return api.post<BatchUpdateRecordsResponse>('/v1/records/batch', request);
   },
 
   delete(request: DeleteRecordsRequest): Promise<void> {

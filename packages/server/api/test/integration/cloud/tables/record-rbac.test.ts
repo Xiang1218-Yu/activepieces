@@ -43,6 +43,20 @@ describe('Record API — project-role permission enforcement', () => {
             expect(response?.json()).toMatchObject({ code: 'PERMISSION_DENIED' })
         })
 
+        it('cannot batch update records (POST /v1/records/batch → 403)', async () => {
+            const { viewerCtx, table, field, recordId } = await setupViewerWithRecord()
+
+            const response = await viewerCtx.post('/v1/records/batch', {
+                tableId: table.id,
+                records: [
+                    { recordId, cells: [{ fieldId: field.id, value: 'viewer-updated' }] },
+                ],
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.FORBIDDEN)
+            expect(response?.json()).toMatchObject({ code: 'PERMISSION_DENIED' })
+        })
+
         it('cannot delete records (DELETE /v1/records → 403)', async () => {
             const { viewerCtx, table, recordId } = await setupViewerWithRecord()
 
@@ -98,6 +112,20 @@ describe('Record API — project-role permission enforcement', () => {
             })
 
             expect(response?.statusCode).toBe(StatusCodes.OK)
+        })
+
+        it('can batch update records', async () => {
+            const { editorCtx, table, field, recordId } = await setupEditorWithRecord()
+
+            const response = await editorCtx.post('/v1/records/batch', {
+                tableId: table.id,
+                records: [
+                    { recordId, cells: [{ fieldId: field.id, value: 'editor-updated' }] },
+                ],
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            expect(response?.json().results[0].status).toBe('success')
         })
 
         it('can delete records', async () => {

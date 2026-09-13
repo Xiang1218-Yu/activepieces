@@ -9,12 +9,16 @@ export {
   ApTableStateProvider,
 } from './components/ap-table-state-provider';
 export { ImportTableDialog } from './components/import-table-dialog';
+export { UnsavedChangesGuard } from './components/unsaved-changes-guard';
 export { mapRecordsToRows, useTableColumns } from './components/table-columns';
 export { tableHooks } from './hooks/table-hooks';
 export { createApTableStore } from './stores/store/ap-tables-client-state';
+export { tableCellStateUtils } from './stores/store/ap-tables-client-state';
 export type {
   ApTableStore,
   TableState,
+  TableCellState,
+  TableCellSaveStatus,
 } from './stores/store/ap-tables-client-state';
 export { ROW_HEIGHT_MAP, RowHeight } from './types/types';
 export type { Row } from './types/types';

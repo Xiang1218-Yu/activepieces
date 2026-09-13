@@ -15,11 +15,20 @@ import { Link, useParams } from 'react-router-dom';
 import { useStore } from 'zustand';
 
 import { RouteLoadingBar } from '@/components/custom/route-loading-bar';
-import { buttonVariants } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   TableState,
   ApTableStore,
   createApTableStore,
+  tableCellStateUtils,
 } from '@/features/tables/stores/store/ap-tables-client-state';
 import { useResourceLock } from '@/hooks/use-resource-lock';
 import { cn } from '@/lib/utils';
@@ -37,15 +46,20 @@ export const TableStateProviderWithTable = ({
   table,
   fields,
   records,
+  storeRef,
 }: {
   children: React.ReactNode;
   table: Table;
   fields: Field[];
   records: PopulatedRecord[];
+  storeRef?: React.MutableRefObject<ApTableStore | null>;
 }) => {
   const tableStoreRef = useRef<ApTableStore>(
     createApTableStore(table, fields, records),
   );
+  if (storeRef) {
+    storeRef.current = tableStoreRef.current;
+  }
   return (
     <TableContext.Provider value={tableStoreRef.current}>
       {children}
@@ -113,7 +127,7 @@ export function ApTableStateProvider({
   // rebuilds the table store from freshly fetched server state without
   // reloading the document (a full reload breaks the embed SDK handshake
   // inside an iframe)
-  const refreshTableState = useCallback(async () => {
+  const rebuildTableState = useCallback(async () => {
     await Promise.all([
       queryClient.refetchQueries({ queryKey: ['table', tableId] }),
       queryClient.refetchQueries({ queryKey: ['fields', tableId] }),
@@ -121,6 +135,21 @@ export function ApTableStateProvider({
     ]);
     setRefreshKey((key) => key + 1);
   }, [queryClient, tableId]);
+
+  const tableStoreRef = useRef<ApTableStore | null>(null);
+  const [isRefreshConfirmOpen, setIsRefreshConfirmOpen] = useState(false);
+  const refreshTableState = useCallback(async () => {
+    const hasUnsavedChanges = tableStoreRef.current
+      ? tableCellStateUtils.hasUnsavedChanges(
+          tableStoreRef.current.getState().cellStates,
+        )
+      : false;
+    if (hasUnsavedChanges) {
+      setIsRefreshConfirmOpen(true);
+      return;
+    }
+    await rebuildTableState();
+  }, [rebuildTableState]);
 
   if (isTableLoading || isFieldsLoading || isRecordsLoading) {
     return <RouteLoadingBar />;
@@ -167,9 +196,42 @@ export function ApTableStateProvider({
           table={table}
           fields={fields}
           records={records.data}
+          storeRef={tableStoreRef}
         >
           {children}
         </TableStateProviderWithTable>
+        <Dialog
+          open={isRefreshConfirmOpen}
+          onOpenChange={setIsRefreshConfirmOpen}
+        >
+          <DialogContent className="max-w-[420px]">
+            <DialogHeader>
+              <DialogTitle>{t('Discard unsaved changes?')}</DialogTitle>
+              <DialogDescription>
+                {t(
+                  'Refreshing the table will discard your unsaved cell edits.',
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setIsRefreshConfirmOpen(false)}
+              >
+                {t('Cancel')}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={async () => {
+                  setIsRefreshConfirmOpen(false);
+                  await rebuildTableState();
+                }}
+              >
+                {t('Discard and refresh')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </TableLockProvider>
     </TableRefreshContext.Provider>
   );

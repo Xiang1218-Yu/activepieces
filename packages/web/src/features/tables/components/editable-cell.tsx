@@ -5,11 +5,15 @@ import { ErrorBoundary } from 'react-error-boundary';
 
 import { cn } from '@/lib/utils';
 
-import { ClientField } from '../stores/store/ap-tables-client-state';
+import {
+  ClientField,
+  tableCellStateUtils,
+} from '../stores/store/ap-tables-client-state';
 import { Row } from '../types/types';
 
 import { useTableState } from './ap-table-state-provider';
 import { CellProvider } from './cell-context';
+import { CellStatusIndicator } from './cell-status-indicator';
 import { DateEditor } from './date-editor';
 import { DatetimeEditor } from './datetime-editor';
 import { DropdownEditor } from './dropdown-editor';
@@ -62,6 +66,7 @@ export function EditableCell({
   locked = false,
   value,
   disabled = false,
+  row,
 }: EditableCellProps) {
   const [selectedCell, setSelectedCell, records, fields] = useTableState(
     (state) => [
@@ -70,6 +75,10 @@ export function EditableCell({
       state.records,
       state.fields,
     ],
+  );
+  const cellState = useTableState(
+    (state) =>
+      state.cellStates[tableCellStateUtils.cellStateKey(row.id, field.uuid)],
   );
   const [isEditing, setIsEditing] = useState(false);
   const isSelected =
@@ -118,6 +127,14 @@ export function EditableCell({
     }
   };
   const isDropdown = field.type === FieldType.STATIC_DROPDOWN;
+  const cellStateBackground = !isEditing
+    ? {
+        'bg-amber-500/10': cellState?.status === 'dirty',
+        'bg-green-500/10': cellState?.status === 'saved',
+        'bg-destructive/10': cellState?.status === 'error',
+        'bg-orange-500/15': cellState?.status === 'conflict',
+      }
+    : {};
   return (
     <div
       ref={containerRef}
@@ -131,6 +148,7 @@ export function EditableCell({
               isSelected && !locked ? 'border-primary' : 'border-transparent',
               locked && 'locked-row',
               !isDropdown && 'pl-2 py-2',
+              cellStateBackground,
             )
       }
       tabIndex={0}
@@ -163,6 +181,15 @@ export function EditableCell({
           <EditorSelector fieldType={field.type} />
         </CellProvider>
       </ErrorBoundary>
+      {!isEditing && cellState && (
+        <div className="pr-1">
+          <CellStatusIndicator
+            cellState={cellState}
+            recordUuid={row.id}
+            fieldUuid={field.uuid}
+          />
+        </div>
+      )}
     </div>
   );
 }

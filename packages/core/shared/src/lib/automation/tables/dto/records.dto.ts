@@ -1,5 +1,7 @@
 import { Cursor, OptionalArrayFromQuery } from '@activepieces/core-utils'
 import { z } from 'zod'
+import { TableCellValidationErrorCode } from '../cell-validation'
+import { PopulatedRecord } from '../record'
 
 const coerceToString = z.preprocess(
     (v) => (v === null || v === undefined ? v : String(v)),
@@ -80,4 +82,52 @@ export const DeleteRecordsRequest = z.object({
 })
 
 export type DeleteRecordsRequest = z.infer<typeof DeleteRecordsRequest>
+
+export const BATCH_UPDATE_RECORDS_LIMIT = 200
+
+export const BatchUpdateRecordsRequest = z.object({
+    tableId: z.string(),
+    records: z.array(z.object({
+        recordId: z.string(),
+        cells: z.array(z.object({
+            fieldId: z.string(),
+            value: coerceToString,
+            baseUpdated: z.string().optional(),
+        })).min(1),
+    })).min(1).max(BATCH_UPDATE_RECORDS_LIMIT),
+})
+
+export type BatchUpdateRecordsRequest = z.infer<typeof BatchUpdateRecordsRequest>
+
+export const BatchUpdateCellErrorCode = z.enum(['VALIDATION', 'CONFLICT', 'UNKNOWN_FIELD'])
+export type BatchUpdateCellErrorCode = z.infer<typeof BatchUpdateCellErrorCode>
+
+export const BatchUpdateCellError = z.object({
+    fieldId: z.string(),
+    code: BatchUpdateCellErrorCode,
+    validationError: TableCellValidationErrorCode.optional(),
+})
+
+export type BatchUpdateCellError = z.infer<typeof BatchUpdateCellError>
+
+export const BatchUpdateRecordErrorCode = z.enum(['VALIDATION', 'CONFLICT', 'NOT_FOUND', 'INTERNAL'])
+export type BatchUpdateRecordErrorCode = z.infer<typeof BatchUpdateRecordErrorCode>
+
+export const BatchUpdateRecordResult = z.object({
+    recordId: z.string(),
+    status: z.enum(['success', 'error']),
+    record: PopulatedRecord.optional(),
+    error: z.object({
+        code: BatchUpdateRecordErrorCode,
+        cells: z.array(BatchUpdateCellError).optional(),
+    }).optional(),
+})
+
+export type BatchUpdateRecordResult = z.infer<typeof BatchUpdateRecordResult>
+
+export const BatchUpdateRecordsResponse = z.object({
+    results: z.array(BatchUpdateRecordResult),
+})
+
+export type BatchUpdateRecordsResponse = z.infer<typeof BatchUpdateRecordsResponse>
 
