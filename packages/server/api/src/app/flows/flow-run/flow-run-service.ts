@@ -703,7 +703,7 @@ async function resolveStepOutput({ step, flowRun, log }: ResolveStepOutputParams
     return JSON.parse(file.data.toString('utf-8'))
 }
 
-async function readLogsFile(log: FastifyBaseLogger, logsFileId: string, projectId: string): Promise<ExecutioOutputFile | null> {
+export async function readLogsFile(log: FastifyBaseLogger, logsFileId: string, projectId: string): Promise<ExecutioOutputFile | null> {
     const result = await fileService(log).getDataOrUndefined({
         projectId,
         fileId: logsFileId,

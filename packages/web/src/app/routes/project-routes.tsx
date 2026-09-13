@@ -47,6 +47,11 @@ const FlowRunPage = lazyWithRetry(
   () => import('./runs/id').then((m) => ({ default: m.FlowRunPage })),
   'flow-run',
 );
+const RunsComparePage = lazyWithRetry(
+  () =>
+    import('./runs/compare').then((m) => ({ default: m.RunsComparePage })),
+  'runs-compare',
+);
 const AppConnectionsPage = lazyWithRetry(
   () =>
     import('./connections').then((m) => ({ default: m.AppConnectionsPage })),
@@ -141,6 +146,20 @@ export const projectRoutes = [
   ...ProjectRouterWrapper({
     path: '/flow-import-redirect/:flowId',
     element: <AfterImportFlowRedirect></AfterImportFlowRedirect>,
+  }),
+  ...ProjectRouterWrapper({
+    path: routesThatRequireProjectId.compareRuns,
+    element: (
+      <ProjectDashboardLayout>
+        <RoutePermissionGuard requiredPermissions={Permission.READ_RUN}>
+          <PageTitle title="Compare Runs">
+            <SuspenseWrapper>
+              <RunsComparePage />
+            </SuspenseWrapper>
+          </PageTitle>
+        </RoutePermissionGuard>
+      </ProjectDashboardLayout>
+    ),
   }),
   ...ProjectRouterWrapper({
     path: routesThatRequireProjectId.singleRun,

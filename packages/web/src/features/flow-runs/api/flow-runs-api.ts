@@ -1,7 +1,11 @@
 import { SeekPage } from '@activepieces/core-utils';
 import {
+  CompareFlowRunsRequestQuery,
+  CompareFlowRunsResponse,
   CountFlowRunsByStatusRequest,
   CountFlowRunsByStatusResponse,
+  FailureRateAggregationRequestQuery,
+  FailureRateAggregationResponse,
   FlowRun,
   FlowRunWithRetryError,
   ListFlowRunsRequestQuery,
@@ -31,6 +35,22 @@ export const flowRunsApi = {
   ): Promise<CountFlowRunsByStatusResponse> {
     return api.get<CountFlowRunsByStatusResponse>(
       '/v1/flow-runs/count-by-status',
+      request,
+    );
+  },
+  compare(
+    request: CompareFlowRunsRequestQuery,
+  ): Promise<CompareFlowRunsResponse> {
+    return api.get<CompareFlowRunsResponse>(
+      '/v1/flow-runs/compare',
+      request,
+    );
+  },
+  failureRate(
+    request: FailureRateAggregationRequestQuery,
+  ): Promise<FailureRateAggregationResponse> {
+    return api.get<FailureRateAggregationResponse>(
+      '/v1/flow-runs/failure-rate',
       request,
     );
   },

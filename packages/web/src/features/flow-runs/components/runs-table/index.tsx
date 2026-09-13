@@ -18,6 +18,7 @@ import {
   X,
   Archive,
   SearchIcon,
+  GitCompare,
 } from 'lucide-react';
 import { useEffect, useMemo, useCallback, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -176,6 +177,7 @@ export const RunsTable = () => {
   const flows = flowsData?.data;
   const { checkAccess } = useAuthorization();
   const userHasPermissionToRetryRun = checkAccess(Permission.WRITE_RUN);
+  const userHasPermissionToReadRun = checkAccess(Permission.READ_RUN);
 
   const filters: DataTableFilters<keyof FlowRun | 'failedStepMessage'>[] =
     useMemo(
@@ -599,7 +601,28 @@ export const RunsTable = () => {
         bulkActions={bulkActions}
         onRowClick={(row, newWindow) => handleRowClick(row, newWindow)}
         customFilters={customFilters}
-        toolbarButtons={[<RunsStatusChart key="status-chart" />]}
+        toolbarButtons={[
+          <RunsStatusChart key="status-chart" />,
+          ...(userHasPermissionToReadRun
+            ? [
+                <Button
+                  key="compare-runs"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    navigate(
+                      authenticationSession.appendProjectRoutePrefix(
+                        '/runs/compare',
+                      ),
+                    )
+                  }
+                >
+                  <GitCompare className="mr-2 size-4" />
+                  {t('Compare runs')}
+                </Button>,
+              ]
+            : []),
+        ]}
         hidePagination={retriedRunsInQueryParams.length > 0}
       />
       <RetriedRunsSnackbar

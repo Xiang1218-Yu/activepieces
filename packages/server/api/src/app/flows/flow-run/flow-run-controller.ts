@@ -1,5 +1,5 @@
 import { ActivepiecesError, ApId, ErrorCode, isNil, omit, Permission, SeekPage } from '@activepieces/core-utils'
-import { ApEdition, BulkActionOnRunsRequestBody, BulkArchiveActionOnRunsRequestBody, BulkCancelFlowRequestBody, CountFlowRunsByStatusRequest, CountFlowRunsByStatusResponse, FlowRun, ListFlowRunsRequestQuery, PlatformRole, PrincipalType, RetryFlowRequestBody, RunEnvironment, RunInternalErrorSource, SERVICE_KEY_SECURITY_OPENAPI } from '@activepieces/shared'
+import { ApEdition, BulkActionOnRunsRequestBody, BulkArchiveActionOnRunsRequestBody, BulkCancelFlowRequestBody, CompareFlowRunsRequestQuery, CompareFlowRunsResponse, CountFlowRunsByStatusRequest, CountFlowRunsByStatusResponse, FailureRateAggregationRequestQuery, FailureRateAggregationResponse, FlowRun, ListFlowRunsRequestQuery, MAX_COMPARED_RUNS, PlatformRole, PrincipalType, RetryFlowRequestBody, RunEnvironment, RunInternalErrorSource, SERVICE_KEY_SECURITY_OPENAPI } from '@activepieces/shared'
 import { FastifyRequest } from 'fastify'
 import { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { StatusCodes } from 'http-status-codes'
@@ -9,6 +9,7 @@ import { securityAccess } from '../../core/security/authorization/fastify-securi
 import { system } from '../../helper/system/system'
 import { userService } from '../../user/user-service'
 import { FlowRunEntity } from './flow-run-entity'
+import { flowRunComparisonService } from './flow-run-comparison-service'
 import { flowRunService } from './flow-run-service'
 
 const DEFAULT_PAGING_LIMIT = 10
@@ -39,6 +40,24 @@ export const flowRunController: FastifyPluginAsyncZod = async (app) => {
             createdBefore: request.query.createdBefore,
         })
         return { data }
+    })
+
+    app.get('/compare', CompareRequest, async (request) => {
+        const flowRunIds = request.query.flowRunIds ?? []
+        if (flowRunIds.length === 0 || flowRunIds.length > MAX_COMPARED_RUNS) {
+            throw new ActivepiecesError({
+                code: ErrorCode.VALIDATION,
+                params: { message: 'Select between 1 and 10 runs to compare' },
+            })
+        }
+        return flowRunComparisonService(request.log).compare({
+            projectId: request.projectId,
+            flowRunIds,
+        })
+    })
+
+    app.get('/failure-rate', FailureRateRouteConfig, async (request) => {
+        return flowRunComparisonService(request.log).aggregateFailureRate(request.query)
     })
 
     app.get(
@@ -231,6 +250,44 @@ const CountByStatusRouteConfig = {
         querystring: CountFlowRunsByStatusRequest,
         response: {
             [StatusCodes.OK]: CountFlowRunsByStatusResponse,
+        },
+    },
+}
+
+const CompareRequest = {
+    config: {
+        security: securityAccess.project(
+            [PrincipalType.USER, PrincipalType.SERVICE],
+            Permission.READ_RUN, {
+                type: ProjectResourceType.QUERY,
+            }),
+    },
+    schema: {
+        tags: ['flow-runs'],
+        description: 'Compare multiple Flow Runs aligned by trigger, step duration, output and error category',
+        security: [SERVICE_KEY_SECURITY_OPENAPI],
+        querystring: CompareFlowRunsRequestQuery,
+        response: {
+            [StatusCodes.OK]: CompareFlowRunsResponse,
+        },
+    },
+}
+
+const FailureRateRouteConfig = {
+    config: {
+        security: securityAccess.project(
+            [PrincipalType.USER, PrincipalType.SERVICE],
+            Permission.READ_RUN, {
+                type: ProjectResourceType.QUERY,
+            }),
+    },
+    schema: {
+        tags: ['flow-runs'],
+        description: 'Aggregate failure rate of Flow Runs into time buckets (cursor paginated)',
+        security: [SERVICE_KEY_SECURITY_OPENAPI],
+        querystring: FailureRateAggregationRequestQuery,
+        response: {
+            [StatusCodes.OK]: FailureRateAggregationResponse,
         },
     },
 }
