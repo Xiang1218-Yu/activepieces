@@ -331,6 +331,7 @@ describe('flow runs command (HTTP)', () => {
         expect(payload.count).toBe(2);
         expect(payload.pagesFetched).toBe(2);
         expect(payload.nextCursor).toBeNull();
+        expect(result.stdout.endsWith('}\n')).toBe(true);
     });
 
     it('exits 3 on 401 with a JSON error envelope and no data leak', async () => {

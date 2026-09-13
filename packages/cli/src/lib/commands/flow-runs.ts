@@ -57,7 +57,7 @@ export function createFlowRunsCommand(): Command {
         try {
             config = flowRunsUtils.normalizeOptions(opts);
         } catch (e) {
-            failUsage(e instanceof Error ? e.message : String(e));
+            await failUsage(e instanceof Error ? e.message : String(e));
             return;
         }
 
@@ -69,11 +69,10 @@ export function createFlowRunsCommand(): Command {
                 await attachDetails({ client, config, runs: page.runs });
             }
         } catch (e) {
-            handleFailure(config, e);
+            await handleFailure(config, e);
             return;
         }
-        emit(config, page);
-        process.exit(EXIT_OK);
+        await emit(config, page);
     });
 }
 
@@ -266,7 +265,7 @@ async function getFlowRunsPage({ client, config, params }: GetFlowRunsPageParams
     let attempt = 0;
     while (true) {
         const result = await rawGet({ client, path: '/api/v1/flow-runs', params });
-        if (!result.ok) {
+        if (result.ok === false) {
             throw new TransportFailure(result.error);
         }
         const { status, data, headers } = result.response;
@@ -288,7 +287,7 @@ async function getFlowRunsPage({ client, config, params }: GetFlowRunsPageParams
                 throw new RateLimitFailure(status, `Rate limited (429) after ${RATE_LIMIT_MAX_ATTEMPTS} attempts.`);
             }
             const waitMs = retryAfterMs(headers) ?? backoffMs(attempt);
-            writeErr(chalk.yellow(`Rate limited by server (429); retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 2}/${RATE_LIMIT_MAX_ATTEMPTS})`));
+            await writeErr(chalk.yellow(`Rate limited by server (429); retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 2}/${RATE_LIMIT_MAX_ATTEMPTS})`));
             await sleep(waitMs);
             attempt += 1;
             continue;
@@ -376,13 +375,13 @@ async function fetchRunSteps({ client, config, runId }: FetchRunStepsParams): Pr
         path: `/api/v1/flow-runs/${encodeURIComponent(runId)}`,
         params: { projectId: config.projectId },
     });
-    if (!result.ok) {
-            writeErr(chalk.yellow(`Could not load details for run ${runId}: ${describeTransportError(result.error)}`));
+    if (result.ok === false) {
+        await writeErr(chalk.yellow(`Could not load details for run ${runId}: ${describeTransportError(result.error)}`));
         return [];
     }
     const { status } = result.response;
     if (status !== 200) {
-        writeErr(chalk.yellow(`Could not load details for run ${runId} (HTTP ${status}); showing list data only`));
+        await writeErr(chalk.yellow(`Could not load details for run ${runId} (HTTP ${status}); showing list data only`));
         return [];
     }
     return summarizeSteps(result.response.data);
@@ -456,15 +455,17 @@ function runDurationMs(item: Record<string, unknown>): number | null {
     return finished - started;
 }
 
-function emit(config: FlowRunsConfig, page: RunsPage): void {
+async function emit(config: FlowRunsConfig, page: RunsPage): Promise<void> {
+    const output = createOutputBuffer();
     if (config.json) {
-        emitJson(page);
+        emitJson({ output, page });
     } else {
-        renderHuman(config, page);
+        renderHuman({ config, output, page });
     }
+    await flushAndExit({ output, code: EXIT_OK });
 }
 
-function emitJson(page: RunsPage): void {
+function emitJson({ output, page }: EmitJsonParams): void {
     const payload: JsonOutput = {
         projectId: page.runs.length > 0 ? page.runs[0].projectId : '',
         pagesFetched: page.pagesFetched,
@@ -474,49 +475,49 @@ function emitJson(page: RunsPage): void {
         count: page.runs.length,
         data: page.runs,
     };
-    process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
+    output.out(JSON.stringify(payload, null, 2));
     if (page.runs.length === 0) {
-        writeErr('No flow runs matched the filters.');
+        output.err('No flow runs matched the filters.');
     } else if (page.nextCursor) {
-        writeErr("More results available — re-run with --cursor '<nextCursor from above>' or --all.");
+        output.err("More results available — re-run with --cursor '<nextCursor from above>' or --all.");
     }
 }
 
-function renderHuman(config: FlowRunsConfig, page: RunsPage): void {
+function renderHuman({ config, output, page }: RenderHumanParams): void {
     if (page.runs.length === 0) {
-        writeOut(chalk.yellow('No flow runs matched the filters.'));
+        output.err(chalk.yellow('No flow runs matched the filters.'));
         return;
     }
-    writeOut(chalk.bold(`Flow runs for project ${config.projectId}`));
+    output.out(chalk.bold(`Flow runs for project ${config.projectId}`));
     for (const run of page.runs) {
         const name = run.flowDisplayName ?? run.flowId;
-        writeOut(`  ${statusBadge(run.status)} ${chalk.bold(name)} ${chalk.gray(`run ${run.id}`)}`);
-        writeOut(`    started  : ${run.startTime ?? 'n/a'}${run.durationMs === null ? '' : chalk.gray(`   duration ${formatDuration(run.durationMs)}`)}`);
+        output.out(`  ${statusBadge(run.status)} ${chalk.bold(name)} ${chalk.gray(`run ${run.id}`)}`);
+        output.out(`    started  : ${run.startTime ?? 'n/a'}${run.durationMs === null ? '' : chalk.gray(`   duration ${formatDuration(run.durationMs)}`)}`);
         if (run.failedStep) {
             const message = run.failedStep.message ? ` — ${truncate(run.failedStep.message, 300)}` : '';
-            writeOut(`    failed at: ${run.failedStep.displayName} (${run.failedStep.name})${chalk.red(message)}`);
+            output.out(`    failed at: ${run.failedStep.displayName} (${run.failedStep.name})${chalk.red(message)}`);
         }
         if (run.steps) {
-            renderSteps(run.steps);
+            renderSteps({ output, steps: run.steps });
         }
     }
-    writeOut(chalk.gray(`\n${page.runs.length} run(s) across ${page.pagesFetched} page(s).`));
+    output.out(chalk.gray(`\n${page.runs.length} run(s) across ${page.pagesFetched} page(s).`));
     if (page.truncated) {
-        writeErr(chalk.yellow(`Stopped at --max-pages (${config.maxPages}); narrow the time range or raise the cap, then continue with --cursor '${page.nextCursor}'.`));
+        output.err(chalk.yellow(`Stopped at --max-pages (${config.maxPages}); narrow the time range or raise the cap, then continue with --cursor '${page.nextCursor}'.`));
     } else if (page.nextCursor) {
-        writeErr(chalk.gray(`Next page: re-run with --cursor '${page.nextCursor}'${config.fetchAll ? '' : ', or use --all'} to page automatically.`));
+        output.err(chalk.gray(`Next page: re-run with --cursor '${page.nextCursor}'${config.fetchAll ? '' : ', or use --all'} to page automatically.`));
     }
 }
 
-function renderSteps(steps: StepSummary[]): void {
+function renderSteps({ output, steps }: RenderStepsParams): void {
     if (steps.length === 0) {
-        writeOut(chalk.gray('    steps: no persisted step data (run pruned, still queued, or server predates step logs)'));
+        output.out(chalk.gray('    steps: no persisted step data (run pruned, still queued, or server predates step logs)'));
         return;
     }
     for (const step of steps) {
         const duration = step.durationMs === null ? '' : chalk.gray(` ${formatDuration(step.durationMs)}`);
         const suffix = step.error ? chalk.red(` — ${truncate(step.error, 200)}`) : '';
-        writeOut(`    ${stepStatusBadge(step.status)} ${step.name} ${chalk.gray(`[${step.type}]`)}${duration}${suffix}`);
+        output.out(`    ${stepStatusBadge(step.status)} ${step.name} ${chalk.gray(`[${step.type}]`)}${duration}${suffix}`);
     }
 }
 
@@ -552,12 +553,46 @@ function truncate(text: string, max: number): string {
     return collapsed.length > max ? `${collapsed.slice(0, max - 1)}…` : collapsed;
 }
 
-function writeOut(message: string): void {
-    process.stdout.write(`${message}\n`);
+type OutputBuffer = {
+    stdoutText: string;
+    stderrText: string;
+    out: (line: string) => void;
+    err: (line: string) => void;
+};
+
+function createOutputBuffer(): OutputBuffer {
+    const buffer: OutputBuffer = {
+        stdoutText: '',
+        stderrText: '',
+        out(line: string) {
+            buffer.stdoutText += `${line}\n`;
+        },
+        err(line: string) {
+            buffer.stderrText += `${line}\n`;
+        },
+    };
+    return buffer;
 }
 
-function writeErr(message: string): void {
-    process.stderr.write(`${message}\n`);
+function writeToStream(stream: NodeJS.WriteStream, text: string): Promise<void> {
+    if (text.length === 0) return Promise.resolve();
+    return new Promise((resolve) => {
+        if (stream.write(text)) {
+            resolve();
+            return;
+        }
+        stream.once('drain', () => resolve());
+    });
+}
+
+async function flushAndExit({ output, code }: FlushAndExitParams): Promise<void> {
+    await writeToStream(process.stdout, output.stdoutText);
+    await writeToStream(process.stderr, output.stderrText);
+    process.exit(code);
+}
+
+async function writeErr(message: string): Promise<void> {
+    await writeToStream(process.stderr, `${message}\n`);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -572,42 +607,44 @@ function describeTransportError(error: AxiosError): string {
     return error.message;
 }
 
-function handleFailure(config: FlowRunsConfig, e: unknown): void {
+async function handleFailure(config: FlowRunsConfig, e: unknown): Promise<void> {
     if (e instanceof AuthFailure) {
-        emitError(config, EXIT_AUTH, 'AUTH_ERROR', e.message);
+        await emitError({ config, exitCode: EXIT_AUTH, code: 'AUTH_ERROR', message: e.message });
         return;
     }
     if (e instanceof RateLimitFailure) {
-        emitError(config, EXIT_RATE_LIMITED, 'RATE_LIMITED', e.message);
+        await emitError({ config, exitCode: EXIT_RATE_LIMITED, code: 'RATE_LIMITED', message: e.message });
         return;
     }
     if (e instanceof ServerFailure) {
-        emitError(config, EXIT_SERVER, 'SERVER_ERROR', e.message);
+        await emitError({ config, exitCode: EXIT_SERVER, code: 'SERVER_ERROR', message: e.message });
         return;
     }
     if (e instanceof ClientFailure) {
-        emitError(config, EXIT_CLIENT, 'CLIENT_ERROR', e.message);
+        await emitError({ config, exitCode: EXIT_CLIENT, code: 'CLIENT_ERROR', message: e.message });
         return;
     }
     if (e instanceof TransportFailure) {
-        emitError(config, EXIT_TRANSPORT, 'NETWORK_ERROR', `Could not reach ${config.url}: ${describeTransportError(e.cause)}`);
+        await emitError({ config, exitCode: EXIT_TRANSPORT, code: 'NETWORK_ERROR', message: `Could not reach ${config.url}: ${describeTransportError(e.cause)}` });
         return;
     }
-    emitError(config, EXIT_TRANSPORT, 'UNEXPECTED_ERROR', e instanceof Error ? e.message : String(e));
+    await emitError({ config, exitCode: EXIT_TRANSPORT, code: 'UNEXPECTED_ERROR', message: e instanceof Error ? e.message : String(e) });
 }
 
-function emitError(config: FlowRunsConfig, exitCode: number, code: string, message: string): void {
+async function emitError({ config, exitCode, code, message }: EmitErrorParams): Promise<void> {
+    const output = createOutputBuffer();
     if (config.json) {
-        process.stdout.write(JSON.stringify({ error: { code, message } }) + '\n');
+        output.out(JSON.stringify({ error: { code, message } }));
     } else {
-        writeErr(chalk.red(message));
+        output.err(chalk.red(message));
     }
-    process.exit(exitCode);
+    await flushAndExit({ output, code: exitCode });
 }
 
-function failUsage(message: string): void {
-    writeErr(chalk.red(message));
-    process.exit(EXIT_USAGE);
+async function failUsage(message: string): Promise<void> {
+    const output = createOutputBuffer();
+    output.err(chalk.red(message));
+    await flushAndExit({ output, code: EXIT_USAGE });
 }
 
 class AuthFailure extends Error {
@@ -713,3 +750,9 @@ type JsonOutput = {
     count: number;
     data: RunListItem[];
 };
+
+type EmitJsonParams = { output: OutputBuffer; page: RunsPage };
+type RenderHumanParams = { config: FlowRunsConfig; output: OutputBuffer; page: RunsPage };
+type RenderStepsParams = { output: OutputBuffer; steps: StepSummary[] };
+type FlushAndExitParams = { output: OutputBuffer; code: number };
+type EmitErrorParams = { config: FlowRunsConfig; exitCode: number; code: string; message: string };
