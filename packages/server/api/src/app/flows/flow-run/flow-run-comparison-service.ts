@@ -87,16 +87,17 @@ export const flowRunComparisonService = (log: FastifyBaseLogger) => ({
         const cursorExclusiveBefore = isNil(params.cursor) ? createdBefore : new Date(params.cursor)
 
         const truncUnit = interval === FailureRateAggregationInterval.HOUR ? 'hour' : 'day'
+        const bucketExpr = `to_char(date_trunc('${truncUnit}', flow_run.created AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`
 
         let bucketsQuery = flowRunRepo().createQueryBuilder('flow_run')
-            .select(`DISTINCT date_trunc('${truncUnit}', flow_run.created)`, 'bucketStart')
+            .select(`DISTINCT ${bucketExpr}`, 'bucketStart')
             .where('flow_run."projectId" = :projectId', { projectId: params.projectId })
             .andWhere('flow_run.environment = :environment', { environment: RunEnvironment.PRODUCTION })
             .andWhere('flow_run."archivedAt" IS NULL')
             .andWhere('flow_run.created >= :createdAfter', { createdAfter })
             .andWhere('flow_run.created < :createdBefore', { createdBefore })
             .andWhere('flow_run.created < :cursorExclusiveBefore', { cursorExclusiveBefore })
-            .orderBy('bucketStart', 'DESC')
+            .orderBy(bucketExpr, 'DESC')
             .limit(pageSize + 1)
 
         if (params.flowId && params.flowId.length > 0) {
@@ -106,25 +107,25 @@ export const flowRunComparisonService = (log: FastifyBaseLogger) => ({
             bucketsQuery = bucketsQuery.andWhere('flow_run.tags @> ARRAY[:...tags]::varchar[]', { tags: params.tags })
         }
 
-        const bucketStarts = await bucketsQuery.getRawMany<{ bucketStart: Date }>()
+        const bucketStarts = await bucketsQuery.getRawMany<{ bucketStart: string }>()
         const hasMore = bucketStarts.length > pageSize
-        const pageBucketStarts = bucketStarts.slice(0, pageSize)
+        const pageBucketStarts = bucketStarts.slice(0, pageSize).map((row) => row.bucketStart)
 
         if (pageBucketStarts.length === 0) {
             return { interval, buckets: [], next: null }
         }
 
         let countsQuery = flowRunRepo().createQueryBuilder('flow_run')
-            .select(`date_trunc('${truncUnit}', flow_run.created)`, 'bucketStart')
+            .select(bucketExpr, 'bucketStart')
             .addSelect('flow_run.status', 'status')
             .addSelect('COUNT(*)', 'count')
             .where('flow_run."projectId" = :projectId', { projectId: params.projectId })
             .andWhere('flow_run.environment = :environment', { environment: RunEnvironment.PRODUCTION })
             .andWhere('flow_run."archivedAt" IS NULL')
-            .andWhere(`date_trunc('${truncUnit}', flow_run.created) IN (:...bucketStarts)`, {
-                bucketStarts: pageBucketStarts.map((row) => row.bucketStart),
-            })
-            .groupBy('bucketStart')
+            .andWhere('flow_run.created >= :createdAfter', { createdAfter })
+            .andWhere('flow_run.created < :cursorExclusiveBefore', { cursorExclusiveBefore })
+            .andWhere(`${bucketExpr} IN (:...bucketStarts)`, { bucketStarts: pageBucketStarts })
+            .groupBy(bucketExpr)
             .addGroupBy('flow_run.status')
 
         if (params.flowId && params.flowId.length > 0) {
@@ -134,18 +135,10 @@ export const flowRunComparisonService = (log: FastifyBaseLogger) => ({
             countsQuery = countsQuery.andWhere('flow_run.tags @> ARRAY[:...tags]::varchar[]', { tags: params.tags })
         }
 
-        const rawRows = await countsQuery.getRawMany<{ bucketStart: Date, status: FlowRunStatus, count: string }>()
-        const bucketsByStart = new Map<string, AccumulatingBucket>()
+        const rawRows = await countsQuery.getRawMany<{ bucketStart: string, status: FlowRunStatus, count: string }>()
+        const countsByStart = new Map<string, { total: number, failed: number, succeeded: number, other: number }>()
         for (const row of rawRows) {
-            const key = row.bucketStart.toISOString()
-            const existing = bucketsByStart.get(key) ?? {
-                date: row.bucketStart,
-                bucketStart: key,
-                total: 0,
-                failed: 0,
-                succeeded: 0,
-                other: 0,
-            }
+            const existing = countsByStart.get(row.bucketStart) ?? { total: 0, failed: 0, succeeded: 0, other: 0 }
             const count = parseInt(row.count, 10)
             existing.total += count
             if (FAILURE_RATE_FAILED_STATUSES.includes(row.status)) {
@@ -157,16 +150,24 @@ export const flowRunComparisonService = (log: FastifyBaseLogger) => ({
             else {
                 existing.other += count
             }
-            bucketsByStart.set(key, existing)
+            countsByStart.set(row.bucketStart, existing)
         }
 
-        const buckets = pageBucketStarts
-            .map((row) => bucketsByStart.get(row.bucketStart.toISOString()))
-            .filter((bucket): bucket is AccumulatingBucket => !isNil(bucket))
-            .map(({ date: _date, ...bucket }) => ({
-                ...bucket,
-                failureRate: bucket.total === 0 ? 0 : bucket.failed / bucket.total,
-            }))
+        const buckets: FailureRateBucket[] = []
+        for (const bucketStart of pageBucketStarts) {
+            const counts = countsByStart.get(bucketStart)
+            if (isNil(counts)) {
+                continue
+            }
+            buckets.push({
+                bucketStart,
+                total: counts.total,
+                failed: counts.failed,
+                succeeded: counts.succeeded,
+                other: counts.other,
+                failureRate: counts.total === 0 ? 0 : counts.failed / counts.total,
+            })
+        }
 
         const next = hasMore && buckets.length > 0 ? buckets[buckets.length - 1].bucketStart : null
 
@@ -177,8 +178,6 @@ export const flowRunComparisonService = (log: FastifyBaseLogger) => ({
         }
     },
 })
-
-type AccumulatingBucket = FailureRateBucket & { date: Date }
 
 async function loadVersions({ log, versionIds }: { log: FastifyBaseLogger, versionIds: string[] }): Promise<Map<string, FlowVersion>> {
     const versions = await Promise.all(
