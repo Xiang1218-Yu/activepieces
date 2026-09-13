@@ -631,6 +631,22 @@ function extractEventDetails(event: ApplicationEvent): EventDetailRow[] {
       ];
       return rows;
     }
+    case ApplicationEventName.FLOW_APPROVAL_SLA_ESCALATED: {
+      const rows: EventDetailRow[] = [
+        {
+          label: t('Flow'),
+          value: event.data.flowDisplayName ?? event.data.flowId,
+        },
+        {
+          label: t('Escalation targets'),
+          value: String(event.data.escalationTargetUserIds?.length ?? 0),
+        },
+      ];
+      if (event.data.breachReason) {
+        rows.push({ label: t('Reason'), value: event.data.breachReason });
+      }
+      return rows;
+    }
     case ApplicationEventName.FLOW_APPROVAL_REJECTED: {
       const rows: EventDetailRow[] = [
         {

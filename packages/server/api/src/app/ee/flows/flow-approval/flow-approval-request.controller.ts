@@ -1,4 +1,4 @@
-import { ApId, FlowApprovalRequest, ListFlowApprovalRequestsQuery, Permission, PopulatedFlowApprovalRequest, PrincipalType, RejectFlowApprovalRequestBody, SeekPage } from '@activepieces/shared'
+import { ApId, ListFlowApprovalRequestsQuery, Permission, PopulatedFlowApprovalRequest, PrincipalType, RejectFlowApprovalRequestBody, SeekPage } from '@activepieces/shared'
 import { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { StatusCodes } from 'http-status-codes'
 import { z } from 'zod'
@@ -10,12 +10,23 @@ import { flowApprovalRequestService } from './flow-approval-request.service'
 export const flowApprovalRequestController: FastifyPluginAsyncZod = async (app) => {
 
     app.get('/', ListRequest, async (req) => {
+        const viewerId = req.principal.type === PrincipalType.USER ? req.principal.id : undefined
         return flowApprovalRequestService(req.log).list({
             projectId: req.projectId,
             state: req.query.state,
             flowVersionId: req.query.flowVersionId,
             cursor: req.query.cursor,
             limit: req.query.limit,
+            viewerId,
+            mine: req.query.mine,
+            overdue: req.query.overdue,
+        })
+    })
+
+    app.get('/:id', GetRequest, async (req) => {
+        return flowApprovalRequestService(req.log).getPopulatedOrThrow({
+            requestId: req.params.id,
+            projectId: req.projectId,
         })
     })
 
@@ -36,6 +47,22 @@ export const flowApprovalRequestController: FastifyPluginAsyncZod = async (app) 
             approverPrincipal: req.principal,
             reason: req.body.reason,
             request: req,
+        })
+        return reply.status(StatusCodes.OK).send(updated)
+    })
+
+    app.post('/:id/pause', PauseRequest, async (req, reply) => {
+        const updated = await flowApprovalRequestService(req.log).pause({
+            requestId: req.params.id,
+            projectId: req.projectId,
+        })
+        return reply.status(StatusCodes.OK).send(updated)
+    })
+
+    app.post('/:id/resume', ResumeRequest, async (req, reply) => {
+        const updated = await flowApprovalRequestService(req.log).resume({
+            requestId: req.params.id,
+            projectId: req.projectId,
         })
         return reply.status(StatusCodes.OK).send(updated)
     })
@@ -64,6 +91,21 @@ const ListRequest = {
     },
 }
 
+const GetRequest = {
+    config: {
+        security: securityAccess.project([PrincipalType.USER, PrincipalType.SERVICE], Permission.READ_FLOW, {
+            type: ProjectResourceType.TABLE,
+            tableName: FlowApprovalRequestEntity,
+        }),
+    },
+    schema: {
+        params: z.object({ id: ApId }),
+        response: {
+            [StatusCodes.OK]: PopulatedFlowApprovalRequest,
+        },
+    },
+}
+
 const ApproveRequest = {
     config: {
         security: securityAccess.project([PrincipalType.USER, PrincipalType.SERVICE], Permission.PUBLISH_SENSITIVE_FLOW_ACCESS, {
@@ -74,7 +116,7 @@ const ApproveRequest = {
     schema: {
         params: z.object({ id: ApId }),
         response: {
-            [StatusCodes.OK]: FlowApprovalRequest,
+            [StatusCodes.OK]: PopulatedFlowApprovalRequest,
         },
     },
 }
@@ -90,7 +132,37 @@ const RejectRequest = {
         params: z.object({ id: ApId }),
         body: RejectFlowApprovalRequestBody,
         response: {
-            [StatusCodes.OK]: FlowApprovalRequest,
+            [StatusCodes.OK]: PopulatedFlowApprovalRequest,
+        },
+    },
+}
+
+const PauseRequest = {
+    config: {
+        security: securityAccess.project([PrincipalType.USER], Permission.PUBLISH_SENSITIVE_FLOW_ACCESS, {
+            type: ProjectResourceType.TABLE,
+            tableName: FlowApprovalRequestEntity,
+        }),
+    },
+    schema: {
+        params: z.object({ id: ApId }),
+        response: {
+            [StatusCodes.OK]: PopulatedFlowApprovalRequest,
+        },
+    },
+}
+
+const ResumeRequest = {
+    config: {
+        security: securityAccess.project([PrincipalType.USER], Permission.PUBLISH_SENSITIVE_FLOW_ACCESS, {
+            type: ProjectResourceType.TABLE,
+            tableName: FlowApprovalRequestEntity,
+        }),
+    },
+    schema: {
+        params: z.object({ id: ApId }),
+        response: {
+            [StatusCodes.OK]: PopulatedFlowApprovalRequest,
         },
     },
 }

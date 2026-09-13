@@ -336,7 +336,8 @@ export const buildMockEvent = ({ event, platformId, projectId }: BuildMockEventP
         case ApplicationEventName.FLOW_APPROVAL_REQUESTED:
         case ApplicationEventName.FLOW_APPROVAL_GRANTED:
         case ApplicationEventName.FLOW_APPROVAL_REJECTED:
-        case ApplicationEventName.FLOW_APPROVAL_WITHDRAWN: {
+        case ApplicationEventName.FLOW_APPROVAL_WITHDRAWN:
+        case ApplicationEventName.FLOW_APPROVAL_SLA_ESCALATED: {
             const mock: FlowApprovalEvent = {
                 ...baseEnvelope,
                 action: event,

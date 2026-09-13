@@ -81,6 +81,16 @@ type PlatformDeletedTemplateData = BaseEmailTemplateData<'platform-deleted', {
     purgeDate: string
 }>
 
+type ApprovalSlaEscalationTemplateData = BaseEmailTemplateData<'approval-sla-escalation', {
+    projectName: string
+    flowName: string
+    priority: string
+    deadlineAt: string
+    overdue: string
+    reason: string
+    reviewUrl: string
+}>
+
 export type EmailTemplateData =
   | InvitationEmailTemplateData
   | ProjectMemberAddedEmailTemplateData
@@ -91,6 +101,7 @@ export type EmailTemplateData =
   | ChatNotificationTemplateData
   | PlatformDeletedTemplateData
   | LoginCodeTemplateData
+  | ApprovalSlaEscalationTemplateData
 
 type SendArgs = {
     emails: string[]

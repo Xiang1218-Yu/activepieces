@@ -25,7 +25,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { flowApprovalsHooks } from '@/features/flow-approvals';
+import {
+  flowApprovalsHooks,
+  ApprovalSlaBadge,
+} from '@/features/flow-approvals';
 import { useAuthorization } from '@/hooks/authorization-hooks';
 import { platformHooks } from '@/hooks/platform-hooks';
 import { authenticationSession } from '@/lib/authentication-session';
@@ -57,6 +60,10 @@ const FlowApprovalBanner = () => {
     flowApprovalsHooks.useReject();
   const { mutateAsync: withdraw, isPending: isWithdrawing } =
     flowApprovalsHooks.useWithdraw();
+  const { mutateAsync: pauseSla, isPending: isPausingSla } =
+    flowApprovalsHooks.usePause();
+  const { mutateAsync: resumeSla, isPending: isResumingSla } =
+    flowApprovalsHooks.useResume();
   const handleWithdraw = async (requestId: string) => {
     const previousVersion = flowVersion;
     setVersion({ ...flowVersion, state: FlowVersionState.DRAFT });
@@ -104,7 +111,13 @@ const FlowApprovalBanner = () => {
   const currentUserId = authenticationSession.getCurrentUserId();
   const isOwnRequest = latestApproval.submitterId === currentUserId;
   const showWithdraw = !isApprover || isOwnRequest;
-  const busy = isApproving || isRejecting || isWithdrawing;
+  const busy =
+    isApproving ||
+    isRejecting ||
+    isWithdrawing ||
+    isPausingSla ||
+    isResumingSla;
+  const isPaused = latestApproval.sla?.paused === true;
 
   const submittedAtDate = new Date(latestApproval.submittedAt);
   const submittedAgo = formatUtils.formatDate(submittedAtDate);
@@ -129,6 +142,7 @@ const FlowApprovalBanner = () => {
               <p>{submittedFullDateTime}</p>
             </TooltipContent>
           </Tooltip>
+          <ApprovalSlaBadge sla={latestApproval.sla} showDetails />
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -201,6 +215,29 @@ const FlowApprovalBanner = () => {
             {t('Withdraw request')}
           </Button>
         )}
+        {isApprover &&
+          latestApproval.sla?.configured &&
+          (isPaused ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              loading={isResumingSla}
+              disabled={busy}
+              onClick={() => resumeSla(latestApproval.id)}
+            >
+              {t('Resume SLA')}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              loading={isPausingSla}
+              disabled={busy}
+              onClick={() => pauseSla(latestApproval.id)}
+            >
+              {t('Pause SLA')}
+            </Button>
+          ))}
       </div>
     </LargeWidgetWrapper>
   );

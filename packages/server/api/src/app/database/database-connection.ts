@@ -21,6 +21,7 @@ import { AppSumoEntity } from '../ee/appsumo/appsumo.entity'
 import { AuditEventEntity } from '../ee/audit-logs/audit-event-entity'
 import { ConnectionKeyEntity } from '../ee/connection-keys/connection-key.entity'
 import { EmbedSubdomainEntity } from '../ee/embed-subdomain/embed-subdomain.entity'
+import { ApprovalSlaPolicyEntity } from '../ee/flows/flow-approval/approval-sla-policy.entity'
 import { FlowApprovalRequestEntity } from '../ee/flows/flow-approval/flow-approval-request.entity'
 import { OAuthAppEntity } from '../ee/oauth-apps/oauth-app.entity'
 import { PieceSetEntity } from '../ee/pieces/piece-set/piece-set.entity'
@@ -135,6 +136,7 @@ function getEntities(): EntitySchema<unknown>[] {
         PlatformAnalyticsReportEntity,
         EmbedSubdomainEntity,
         FlowApprovalRequestEntity,
+        ApprovalSlaPolicyEntity,
         // CLOUD
         AppSumoEntity,
         ConnectionKeyEntity,

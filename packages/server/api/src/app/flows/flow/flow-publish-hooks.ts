@@ -1,5 +1,6 @@
-import { Flow, FlowStatus, PlatformId, ProjectId, UserId } from '@activepieces/shared'
+import { Flow, FlowApprovalPriority, FlowStatus, PlatformId, ProjectId, UserId } from '@activepieces/shared'
 import { EntityManager } from 'typeorm'
+import { FastifyBaseLogger } from 'fastify'
 import { hooksFactory } from '../../helper/hooks-factory'
 
 export type PublishRoute = 'PUBLISH_NOW' | 'NEEDS_APPROVAL'
@@ -9,7 +10,7 @@ export type PublishHooks = {
     submitForApproval(params: SubmitForApprovalParams): Promise<void>
 }
 
-export const publishHooksFactory = hooksFactory.create<PublishHooks>(_log => ({
+export const publishHooksFactory = hooksFactory.create<PublishHooks>((_log: FastifyBaseLogger) => ({
     async routePublish(_params: RoutePublishParams): Promise<PublishRoute> {
         return 'PUBLISH_NOW'
     },
@@ -37,6 +38,7 @@ export type SubmitForApprovalParams = {
     projectId: ProjectId
     platformId: PlatformId
     requestedStatus: FlowStatus
+    priority: FlowApprovalPriority
 }
 
 export type FlowPublishHooks = {

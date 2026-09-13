@@ -192,8 +192,16 @@ export const UpdateFlowStatusRequest = z.object({
 })
 export type UpdateFlowStatusRequest = z.infer<typeof UpdateFlowStatusRequest>
 
+export enum ApprovalPriority {
+    LOW = 'LOW',
+    NORMAL = 'NORMAL',
+    HIGH = 'HIGH',
+    URGENT = 'URGENT',
+}
+
 export const ChangePublishedVersionIdRequest = z.object({
     status: z.nativeEnum(FlowStatus).optional(),
+    approvalPriority: z.nativeEnum(ApprovalPriority).optional(),
 })
 export type ChangePublishedVersionIdRequest = z.infer<
     typeof ChangePublishedVersionIdRequest

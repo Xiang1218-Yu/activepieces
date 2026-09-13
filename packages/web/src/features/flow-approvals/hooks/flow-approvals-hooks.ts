@@ -1,8 +1,11 @@
 import {
+  ApprovalSlaPolicy,
   FlowApprovalRequest,
   FlowApprovalRequestState,
   Permission,
+  PopulatedFlowApprovalRequest,
   RejectFlowApprovalRequestBody,
+  UpsertApprovalSlaPolicyRequestBody,
 } from '@activepieces/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { t } from 'i18next';
@@ -13,7 +16,10 @@ import { useAuthorization } from '@/hooks/authorization-hooks';
 import { platformHooks } from '@/hooks/platform-hooks';
 import { authenticationSession } from '@/lib/authentication-session';
 
-import { flowApprovalsApi } from '../api/flow-approvals-api';
+import {
+  approvalSlaPolicyApi,
+  flowApprovalsApi,
+} from '../api/flow-approvals-api';
 
 const PENDING_BADGE_PROBE_LIMIT = 11;
 
@@ -22,20 +28,23 @@ export const flowApprovalsHooks = {
     cursor,
     limit,
     state,
+    overdue,
+    refetchInterval,
   }: {
     cursor?: string;
     limit?: number;
     state?: FlowApprovalRequestState;
+    overdue?: boolean;
+    refetchInterval?: number;
   }) => {
     const { platform } = platformHooks.useCurrentPlatform();
-    const { checkAccess } = useAuthorization();
     const projectId = authenticationSession.getProjectId();
-    const canApprove = checkAccess(Permission.PUBLISH_SENSITIVE_FLOW_ACCESS);
     return useQuery({
       queryKey: [
         'flow-approval-requests',
         projectId,
         state ?? 'ALL',
+        overdue ? 'OVERDUE' : 'ALL',
         cursor ?? null,
         limit ?? null,
       ],
@@ -44,10 +53,21 @@ export const flowApprovalsHooks = {
           state,
           cursor,
           limit,
+          overdue,
           projectId: projectId ?? undefined,
         }),
-      enabled: !!projectId && platform.plan.environmentsEnabled && canApprove,
+      enabled: !!projectId && platform.plan.environmentsEnabled,
+      refetchInterval,
       meta: { showErrorDialog: true, loadSubsetOptions: {} },
+    });
+  },
+  useApproval: (id: string | undefined) => {
+    const { platform } = platformHooks.useCurrentPlatform();
+    return useQuery({
+      queryKey: ['flow-approval-requests', 'detail', id],
+      queryFn: () => flowApprovalsApi.get(id!),
+      enabled: !!id && platform.plan.environmentsEnabled,
+      refetchInterval: 30_000,
     });
   },
   usePendingApprovalsBadge: () => {
@@ -86,11 +106,12 @@ export const flowApprovalsHooks = {
       },
       enabled:
         !!flowVersionId && !!projectId && platform.plan.environmentsEnabled,
+      refetchInterval: 30_000,
     });
   },
   useApprove: () => {
     const queryClient = useQueryClient();
-    return useMutation<FlowApprovalRequest, Error, string>({
+    return useMutation<PopulatedFlowApprovalRequest, Error, string>({
       mutationFn: (id) => flowApprovalsApi.approve(id),
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ['flow-approval-requests'] });
@@ -102,7 +123,7 @@ export const flowApprovalsHooks = {
   useReject: () => {
     const queryClient = useQueryClient();
     return useMutation<
-      FlowApprovalRequest,
+      PopulatedFlowApprovalRequest,
       Error,
       { id: string; body: RejectFlowApprovalRequestBody }
     >({
@@ -124,4 +145,66 @@ export const flowApprovalsHooks = {
       },
     });
   },
+  usePause: () => {
+    const queryClient = useQueryClient();
+    return useMutation<PopulatedFlowApprovalRequest, Error, string>({
+      mutationFn: (id) => flowApprovalsApi.pause(id),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['flow-approval-requests'] });
+        toast.success(t('Approval SLA paused'));
+      },
+    });
+  },
+  useResume: () => {
+    const queryClient = useQueryClient();
+    return useMutation<PopulatedFlowApprovalRequest, Error, string>({
+      mutationFn: (id) => flowApprovalsApi.resume(id),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['flow-approval-requests'] });
+        toast.success(t('Approval SLA resumed'));
+      },
+    });
+  },
 };
+
+export const approvalSlaPolicyHooks = {
+  usePolicy: () => {
+    const { platform } = platformHooks.useCurrentPlatform();
+    const projectId = authenticationSession.getProjectId();
+    return useQuery({
+      queryKey: ['approval-sla-policy', projectId],
+      queryFn: () => approvalSlaPolicyApi.get(projectId!),
+      enabled: !!projectId && platform.plan.environmentsEnabled,
+    });
+  },
+  useUpsertPolicy: () => {
+    const queryClient = useQueryClient();
+    const projectId = authenticationSession.getProjectId();
+    return useMutation<
+      ApprovalSlaPolicy,
+      Error,
+      UpsertApprovalSlaPolicyRequestBody
+    >({
+      mutationFn: (body) => approvalSlaPolicyApi.upsert(projectId!, body),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['approval-sla-policy'] });
+        toast.success(t('Approval SLA policy saved'));
+      },
+    });
+  },
+  useDeletePolicy: () => {
+    const queryClient = useQueryClient();
+    const projectId = authenticationSession.getProjectId();
+    return useMutation<void, Error, void>({
+      mutationFn: async () => {
+        await approvalSlaPolicyApi.delete(projectId!);
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['approval-sla-policy'] });
+        toast.success(t('Approval SLA policy removed'));
+      },
+    });
+  },
+};
+
+export type { FlowApprovalRequest };

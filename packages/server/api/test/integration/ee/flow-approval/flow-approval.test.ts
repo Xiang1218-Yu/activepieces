@@ -2,6 +2,7 @@ import {
     apId,
     DefaultProjectRole,
     Flow,
+    FlowApprovalPriority,
     FlowApprovalRequest,
     FlowApprovalRequestState,
     FlowStatus,
@@ -86,6 +87,11 @@ async function seedPendingApproval(ctx: TestContext, submitterId: string): Promi
         state: FlowApprovalRequestState.PENDING,
         requestedStatus: FlowStatus.DISABLED,
         rejectionReason: null,
+        priority: FlowApprovalPriority.NORMAL,
+        slaDeadlineAt: null,
+        pausedAt: null,
+        escalatedAt: null,
+        slaBreachReason: null,
     }
     await db.save('flow_approval_request', approval)
     return { flow, version, approval }
@@ -156,6 +162,7 @@ describe('flow-approval — submitForApproval race', () => {
                 projectId: ctx.project.id,
                 platformId: ctx.platform.id,
                 requestedStatus: FlowStatus.ENABLED,
+                priority: FlowApprovalPriority.NORMAL,
             }),
             flowApprovalRequestService(app!.log).submitForApproval({
                 flow,
@@ -163,6 +170,7 @@ describe('flow-approval — submitForApproval race', () => {
                 projectId: ctx.project.id,
                 platformId: ctx.platform.id,
                 requestedStatus: FlowStatus.ENABLED,
+                priority: FlowApprovalPriority.NORMAL,
             }),
         ])
 
@@ -188,6 +196,7 @@ describe('flow-approval — submitForApproval supersession', () => {
             projectId: ctx.project.id,
             platformId: ctx.platform.id,
             requestedStatus: FlowStatus.DISABLED,
+            priority: FlowApprovalPriority.NORMAL,
         })
 
         const newDraft = createMockFlowVersion({
@@ -204,6 +213,7 @@ describe('flow-approval — submitForApproval supersession', () => {
             projectId: ctx.project.id,
             platformId: ctx.platform.id,
             requestedStatus: FlowStatus.ENABLED,
+            priority: FlowApprovalPriority.NORMAL,
         })
 
         expect(second.id).toBe(first.id)

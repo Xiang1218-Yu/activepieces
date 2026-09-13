@@ -1,3 +1,4 @@
+import { ApprovalPriority } from '@activepieces/core-execution'
 import { Flow, FlowApprovalRequest, FlowApprovalRequestState, FlowVersion, Platform, Project, User } from '@activepieces/shared'
 import { EntitySchema } from 'typeorm'
 import { ApIdSchema, BaseColumnSchemaPart } from '../../../database/database-common'
@@ -60,6 +61,28 @@ export const FlowApprovalRequestEntity = new EntitySchema<FlowApprovalRequestSch
             type: 'text',
             nullable: true,
         },
+        priority: {
+            type: String,
+            enum: ApprovalPriority,
+            nullable: false,
+            default: ApprovalPriority.NORMAL,
+        },
+        slaDeadlineAt: {
+            type: 'timestamp with time zone',
+            nullable: true,
+        },
+        pausedAt: {
+            type: 'timestamp with time zone',
+            nullable: true,
+        },
+        escalatedAt: {
+            type: 'timestamp with time zone',
+            nullable: true,
+        },
+        slaBreachReason: {
+            type: String,
+            nullable: true,
+        },
     },
     indices: [
         {
@@ -83,6 +106,11 @@ export const FlowApprovalRequestEntity = new EntitySchema<FlowApprovalRequestSch
         {
             name: 'idx_flow_approval_request_platform_id_state',
             columns: ['platformId', 'state'],
+        },
+        {
+            name: 'idx_flow_approval_request_sla_due',
+            columns: ['slaDeadlineAt'],
+            where: '"state" = \'PENDING\' AND "pausedAt" IS NULL',
         },
     ],
     relations: {

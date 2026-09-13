@@ -1,7 +1,7 @@
 import { isNil, Permission, tryCatch } from '@activepieces/core-utils';
 import { ApFlagId, PlatformRole, ProjectType } from '@activepieces/shared';
 import { t } from 'i18next';
-import { Bell, GitBranch, Puzzle, Settings, Users } from 'lucide-react';
+import { Bell, GitBranch, Puzzle, Settings, Timer, Users } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { ProjectAvatar } from '../project-avatar';
 
 import { AlertsSettings } from './alerts';
+import { ApprovalSlaSettings } from './approval-sla';
 import { EnvironmentSettings } from './environment';
 import { GeneralSettings, FormValues } from './general';
 import { McpServerSettings } from './mcp-server';
@@ -36,6 +37,7 @@ type TabId =
   | 'alerts'
   | 'pieces'
   | 'environment'
+  | 'approval-sla'
   | 'mcp';
 
 interface ProjectSettingsDialogProps {
@@ -161,6 +163,12 @@ export function ProjectSettingsDialog({
       icon: <GitBranch className="w-4 h-4" />,
       disabled: !checkAccess(Permission.READ_PROJECT_RELEASE),
     },
+    {
+      id: 'approval-sla' as TabId,
+      label: t('Approval SLA'),
+      icon: <Timer className="w-4 h-4" />,
+      disabled: false,
+    },
   ].filter((tab) => !tab.disabled);
 
   const renderTabContent = () => {
@@ -175,6 +183,8 @@ export function ProjectSettingsDialog({
         return <PiecesSettings />;
       case 'environment':
         return <EnvironmentSettings />;
+      case 'approval-sla':
+        return <ApprovalSlaSettings />;
       case 'mcp':
         return <McpServerSettings />;
       default:

@@ -209,6 +209,36 @@ export const emailService = (log: FastifyBaseLogger) => ({
             },
         })
     },
+
+    async sendApprovalSlaEscalation({ platformId, to, projectName, flowName, priority, deadlineAt, overdue, reason, reviewUrl }: SendApprovalSlaEscalationArgs): Promise<void> {
+        if (to.length === 0) {
+            return
+        }
+        log.info({
+            platform: { id: platformId },
+            recipientCount: to.length,
+            projectName,
+            flowName,
+            reason,
+        }, '[emailService#sendApprovalSlaEscalation] sending approval SLA escalation email')
+
+        await emailSender(log).send({
+            emails: to,
+            platformId,
+            templateData: {
+                name: 'approval-sla-escalation',
+                vars: {
+                    projectName,
+                    flowName,
+                    priority,
+                    deadlineAt,
+                    overdue,
+                    reason,
+                    reviewUrl,
+                },
+            },
+        })
+    },
 })
 
 async function otpTemplateData({ type, otp, identityId }: OtpTemplateDataParams): Promise<EmailTemplateData> {
@@ -309,6 +339,18 @@ type SendChatNotificationArgs = {
     body: string
     senderName: string
     senderEmail: string
+}
+
+type SendApprovalSlaEscalationArgs = {
+    platformId: string
+    to: string[]
+    projectName: string
+    flowName: string
+    priority: string
+    deadlineAt: string
+    overdue: string
+    reason: string
+    reviewUrl: string
 }
 
 type IssueCreatedArgs = {

@@ -58,6 +58,7 @@ export enum ApplicationEventName {
     FLOW_APPROVAL_GRANTED = 'flow.approval.granted',
     FLOW_APPROVAL_REJECTED = 'flow.approval.rejected',
     FLOW_APPROVAL_WITHDRAWN = 'flow.approval.withdrawn',
+    FLOW_APPROVAL_SLA_ESCALATED = 'flow.approval.sla.escalated',
 }
 
 const BaseAuditEventProps = {
@@ -552,6 +553,7 @@ export const FlowApprovalEvent = z.object({
         z.literal(ApplicationEventName.FLOW_APPROVAL_GRANTED),
         z.literal(ApplicationEventName.FLOW_APPROVAL_REJECTED),
         z.literal(ApplicationEventName.FLOW_APPROVAL_WITHDRAWN),
+        z.literal(ApplicationEventName.FLOW_APPROVAL_SLA_ESCALATED),
     ]),
     data: z.object({
         approvalRequestId: z.string(),
@@ -559,6 +561,8 @@ export const FlowApprovalEvent = z.object({
         flowVersionId: z.string(),
         flowDisplayName: z.optional(z.string()),
         rejectionReason: z.optional(Nullable(z.string())),
+        breachReason: z.optional(Nullable(z.string())),
+        escalationTargetUserIds: z.optional(z.array(z.string())),
     }),
 })
 export type FlowApprovalEvent = z.infer<typeof FlowApprovalEvent>
@@ -680,6 +684,8 @@ export function summarizeApplicationEvent(event: ApplicationEvent) {
             return `Approval rejected for flow ${event.data.flowDisplayName ?? event.data.flowId}${event.data['rejectionReason'] ? ` (${event.data['rejectionReason']})` : ''}`
         case ApplicationEventName.FLOW_APPROVAL_WITHDRAWN:
             return `Approval request withdrawn for flow ${event.data.flowDisplayName ?? event.data.flowId}`
+        case ApplicationEventName.FLOW_APPROVAL_SLA_ESCALATED:
+            return `Approval SLA escalated for flow ${event.data.flowDisplayName ?? event.data.flowId}`
     }
 }
 

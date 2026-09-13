@@ -1,5 +1,6 @@
-import { ActivepiecesError, apId, ApId, ApplicationEventName, Cursor, ErrorCode, Flow, FlowApprovalRequest, FlowApprovalRequestState, FlowOperationType, FlowStatus, FlowVersionState, isNil, PlatformId, PopulatedFlowApprovalRequest, Principal, PrincipalType, ProjectId, SeekPage, UserId } from '@activepieces/shared'
+import { ActivepiecesError, apId, ApId, ApplicationEventName, ApprovalSlaPolicy, Cursor, ErrorCode, Flow, FlowApprovalPriority, FlowApprovalRequest, FlowApprovalRequestState, FlowOperationType, FlowStatus, FlowVersionState, isNil, Permission, PlatformId, PopulatedFlowApprovalRequest, Principal, PrincipalType, ProjectId, SeekPage, UserId } from '@activepieces/shared'
 import { FastifyBaseLogger, FastifyRequest } from 'fastify'
+import { IsNull, LessThanOrEqual } from 'typeorm'
 import { repoFactory } from '../../../core/db/repo-factory'
 import { transaction } from '../../../core/db/transaction'
 import { flowExecutionCache } from '../../../flows/flow/flow-execution-cache'
@@ -10,16 +11,25 @@ import { buildPaginator } from '../../../helper/pagination/build-paginator'
 import { paginationHelper } from '../../../helper/pagination/pagination-utils'
 import { Order } from '../../../helper/pagination/paginator'
 import { triggerSourceService } from '../../../trigger/trigger-source/trigger-source-service'
-import { FlowApprovalRequestEntity } from './flow-approval-request.entity'
+import { projectMemberService } from '../../projects/project-members/project-member.service'
+import { approvalSlaPolicyService } from './approval-sla-policy.service'
+import { approvalSlaTime } from './approval-sla-time'
+import { FlowApprovalRequestEntity, FlowApprovalRequestSchema } from './flow-approval-request.entity'
 
 const flowApprovalRequestRepo = repoFactory(FlowApprovalRequestEntity)
 
 export const flowApprovalRequestService = (log: FastifyBaseLogger) => ({
-    async submitForApproval({ flow, userId, projectId, platformId, requestedStatus }: SubmitParams): Promise<FlowApprovalRequest> {
+    async submitForApproval({ flow, userId, projectId, platformId, requestedStatus, priority }: SubmitParams): Promise<FlowApprovalRequest> {
         const draft = await flowVersionService(log).getFlowVersionOrThrow({
             flowId: flow.id,
             versionId: undefined,
         })
+        const policy = await approvalSlaPolicyService(log).getForProject({ projectId })
+        const rule = policy ? approvalSlaTime.resolveRule(policy, priority) : undefined
+        const nowIso = new Date().toISOString()
+        const slaDeadlineAt = policy && rule
+            ? approvalSlaTime.computeDeadline({ submittedAtIso: nowIso, rule, timezoneName: policy.timezone })
+            : null
         return transaction(async (entityManager) => {
             const lockedVersion = draft.state === FlowVersionState.LOCKED
                 ? draft
@@ -31,7 +41,6 @@ export const flowApprovalRequestService = (log: FastifyBaseLogger) => ({
                     userOperation: { type: FlowOperationType.LOCK_FLOW, request: {} },
                     entityManager,
                 })
-            const now = new Date().toISOString()
             await flowApprovalRequestRepo(entityManager)
                 .createQueryBuilder()
                 .insert()
@@ -43,15 +52,20 @@ export const flowApprovalRequestService = (log: FastifyBaseLogger) => ({
                     projectId,
                     platformId,
                     submitterId: userId ?? null,
-                    submittedAt: now,
+                    submittedAt: nowIso,
                     approverId: null,
                     decidedAt: null,
                     state: FlowApprovalRequestState.PENDING,
                     requestedStatus,
                     rejectionReason: null,
+                    priority,
+                    slaDeadlineAt,
+                    pausedAt: null,
+                    escalatedAt: null,
+                    slaBreachReason: null,
                 })
                 .orUpdate(
-                    ['flowVersionId', 'submitterId', 'submittedAt', 'requestedStatus'],
+                    ['flowVersionId', 'submitterId', 'submittedAt', 'requestedStatus', 'priority', 'slaDeadlineAt', 'pausedAt', 'escalatedAt', 'slaBreachReason'],
                     ['flowId'],
                     { indexPredicate: '"state" = \'PENDING\'' },
                 )
@@ -73,15 +87,10 @@ export const flowApprovalRequestService = (log: FastifyBaseLogger) => ({
         })
     },
 
-    async approve({ requestId, projectId, approverPrincipal, request }: DecideParams): Promise<FlowApprovalRequest> {
+    async approve({ requestId, projectId, approverPrincipal, request }: DecideParams): Promise<PopulatedFlowApprovalRequest> {
         const approval = await this.getOneOrThrow({ requestId, projectId })
-        // Idempotent-only, no retry-drive. flow.status doesn't distinguish
-        // "activation failed after commit" from "operator disabled after
-        // successful approve", so re-driving here could revert an intentional
-        // disable. Any flow stuck DISABLED (approval-related or not) recovers
-        // via the standard flow enable path (status toggle).
         if (approval.state === FlowApprovalRequestState.APPROVED) {
-            return approval
+            return this.getPopulatedOrThrow({ requestId, projectId })
         }
         assertStateIsPending(approval.state)
 
@@ -102,6 +111,7 @@ export const flowApprovalRequestService = (log: FastifyBaseLogger) => ({
                     state: FlowApprovalRequestState.APPROVED,
                     approverId,
                     decidedAt,
+                    pausedAt: null,
                 })
                 .where({ id: approval.id, state: FlowApprovalRequestState.PENDING })
                 .returning(['id'])
@@ -133,18 +143,13 @@ export const flowApprovalRequestService = (log: FastifyBaseLogger) => ({
                 flowDisplayName: lockedVersion.displayName,
             },
         })
-        return {
-            ...approval,
-            state: FlowApprovalRequestState.APPROVED,
-            approverId,
-            decidedAt,
-        }
+        return this.getPopulatedOrThrow({ requestId: approval.id, projectId })
     },
 
-    async reject({ requestId, projectId, approverPrincipal, reason, request }: RejectParams): Promise<FlowApprovalRequest> {
+    async reject({ requestId, projectId, approverPrincipal, reason, request }: RejectParams): Promise<PopulatedFlowApprovalRequest> {
         const approval = await this.getOneOrThrow({ requestId, projectId })
         if (approval.state === FlowApprovalRequestState.REJECTED) {
-            return approval
+            return this.getPopulatedOrThrow({ requestId, projectId })
         }
         assertStateIsPending(approval.state)
 
@@ -165,6 +170,7 @@ export const flowApprovalRequestService = (log: FastifyBaseLogger) => ({
                 approverId,
                 decidedAt,
                 rejectionReason,
+                pausedAt: null,
             })
             .where({ id: approval.id, state: FlowApprovalRequestState.PENDING })
             .returning(['id'])
@@ -178,16 +184,10 @@ export const flowApprovalRequestService = (log: FastifyBaseLogger) => ({
                 flowId: approval.flowId,
                 flowVersionId: approval.flowVersionId,
                 flowDisplayName: lockedVersion.displayName,
-                rejectionReason: reason ?? null,
+                rejectionReason,
             },
         })
-        return {
-            ...approval,
-            state: FlowApprovalRequestState.REJECTED,
-            approverId,
-            decidedAt,
-            rejectionReason,
-        }
+        return this.getPopulatedOrThrow({ requestId: approval.id, projectId })
     },
 
     async withdraw({ requestId, projectId, request }: WithdrawParams): Promise<void> {
@@ -221,6 +221,27 @@ export const flowApprovalRequestService = (log: FastifyBaseLogger) => ({
         })
     },
 
+    async pause({ requestId, projectId }: PauseParams): Promise<PopulatedFlowApprovalRequest> {
+        const approval = await this.getOneOrThrow({ requestId, projectId })
+        assertStateIsPending(approval.state)
+        if (approval.pausedAt === null) {
+            await flowApprovalRequestRepo().update(
+                { id: approval.id, state: FlowApprovalRequestState.PENDING, pausedAt: IsNull() },
+                { pausedAt: new Date().toISOString() },
+            )
+        }
+        return this.getPopulatedOrThrow({ requestId, projectId })
+    },
+
+    async resume({ requestId, projectId }: PauseParams): Promise<PopulatedFlowApprovalRequest> {
+        const approval = await this.getOneOrThrow({ requestId, projectId })
+        assertStateIsPending(approval.state)
+        if (approval.pausedAt !== null) {
+            await shiftDeadlineForPausedDuration({ requestId: approval.id, projectId })
+        }
+        return this.getPopulatedOrThrow({ requestId, projectId })
+    },
+
     async getOneOrThrow({ requestId, projectId }: { requestId: ApId, projectId: ProjectId }): Promise<FlowApprovalRequest> {
         const approval = await flowApprovalRequestRepo().findOne({
             where: { id: requestId, projectId },
@@ -234,7 +255,31 @@ export const flowApprovalRequestService = (log: FastifyBaseLogger) => ({
         return approval
     },
 
-    async list({ projectId, state, flowVersionId, cursor, limit }: ListParams): Promise<SeekPage<PopulatedFlowApprovalRequest>> {
+    async getPendingByFlowId({ flowId, projectId }: { flowId: string, projectId: ProjectId }): Promise<FlowApprovalRequest | null> {
+        return flowApprovalRequestRepo().findOne({
+            where: { flowId, projectId, state: FlowApprovalRequestState.PENDING },
+        })
+    },
+
+    async getPopulatedOrThrow({ requestId, projectId, policy }: { requestId: ApId, projectId: ProjectId, policy?: ApprovalSlaPolicy | null }): Promise<PopulatedFlowApprovalRequest> {
+        const approval = await this.getOneOrThrow({ requestId, projectId })
+        const flowVersion = await flowVersionService(log).getOneOrThrow(approval.flowVersionId)
+        const effectivePolicy = policy === undefined ? await approvalSlaPolicyService(log).getForProject({ projectId }) : policy
+        return {
+            ...approval,
+            flowVersion: {
+                id: flowVersion.id,
+                displayName: flowVersion.displayName,
+                flowId: flowVersion.flowId,
+                state: flowVersion.state,
+                created: flowVersion.created,
+                updated: flowVersion.updated,
+            },
+            sla: approvalSlaTime.computeSlaStatus({ approval, policy: effectivePolicy }),
+        }
+    },
+
+    async list({ projectId, state, flowVersionId, cursor, limit, viewerId, mine, overdue }: ListParams): Promise<SeekPage<PopulatedFlowApprovalRequest>> {
         const decoded = paginationHelper.decodeCursor(cursor)
         const paginator = buildPaginator({
             entity: FlowApprovalRequestEntity,
@@ -261,23 +306,111 @@ export const flowApprovalRequestService = (log: FastifyBaseLogger) => ({
         if (flowVersionId) {
             qb.andWhere({ flowVersionId })
         }
-        const result = await paginator.paginate<FlowApprovalRequest & { flowVersion?: { id: string, displayName: string, flowId: string, state: FlowVersionState, created: string, updated: string } }>(qb)
-        const populated: PopulatedFlowApprovalRequest[] = result.data.map((row) => ({
-            ...row,
-            flowVersion: row.flowVersion
-                ? {
-                    id: row.flowVersion.id,
-                    displayName: row.flowVersion.displayName,
-                    flowId: row.flowVersion.flowId,
-                    state: row.flowVersion.state,
-                    created: row.flowVersion.created,
-                    updated: row.flowVersion.updated,
-                }
-                : undefined,
-        }))
+        if (mine && viewerId) {
+            qb.andWhere('(far."submitterId" = :viewerId OR far."approverId" = :viewerId)', { viewerId })
+        }
+        if (overdue) {
+            qb.andWhere('far."state" = :pendingState AND far."pausedAt" IS NULL AND far."slaDeadlineAt" IS NOT NULL AND far."slaDeadlineAt" <= :now', {
+                pendingState: FlowApprovalRequestState.PENDING,
+                now: new Date().toISOString(),
+            })
+        }
+        const result = await paginator.paginate<FlowApprovalRequestSchema & { flowVersion?: { id: string, displayName: string, flowId: string, state: FlowVersionState, created: string, updated: string } }>(qb)
+        const policy = await approvalSlaPolicyService(log).getForProject({ projectId })
+        const visibleApproverIds = viewerId
+            ? await projectMemberService(log).listUserIdsWithPermissionOnProject({ projectId, permission: Permission.PUBLISH_SENSITIVE_FLOW_ACCESS })
+            : null
+        const populated: PopulatedFlowApprovalRequest[] = result.data
+            .filter((row) => isViewerAllowed({ row, viewerId: viewerId ?? null, visibleApproverIds }))
+            .map((row) => ({
+                ...row,
+                flowVersion: row.flowVersion
+                    ? {
+                        id: row.flowVersion.id,
+                        displayName: row.flowVersion.displayName,
+                        flowId: row.flowVersion.flowId,
+                        state: row.flowVersion.state,
+                        created: row.flowVersion.created,
+                        updated: row.flowVersion.updated,
+                    }
+                    : undefined,
+                sla: approvalSlaTime.computeSlaStatus({ approval: row, policy }),
+            }))
         return paginationHelper.createPage(populated, result.cursor)
     },
+
+    async listDueForSlaCheck({ nowIso, batchSize = 200 }: { nowIso: string, batchSize?: number }): Promise<FlowApprovalRequest[]> {
+        return flowApprovalRequestRepo().find({
+            where: {
+                state: FlowApprovalRequestState.PENDING,
+                pausedAt: IsNull(),
+                slaDeadlineAt: LessThanOrEqual(nowIso),
+            },
+            order: { slaDeadlineAt: 'ASC' },
+            take: batchSize,
+        })
+    },
+
+    async markEscalated({ requestId, projectId, escalatedAt }: { requestId: ApId, projectId: ProjectId, escalatedAt: string }): Promise<boolean> {
+        const updateResult = await flowApprovalRequestRepo()
+            .createQueryBuilder()
+            .update()
+            .set({ escalatedAt })
+            .where({ id: requestId, projectId, escalatedAt: IsNull(), state: FlowApprovalRequestState.PENDING })
+            .returning(['id'])
+            .execute()
+        return (updateResult.raw?.length ?? 0) > 0
+    },
+
+    async markBreached({ requestId, projectId, reason }: { requestId: ApId, projectId: ProjectId, reason: NonNullable<FlowApprovalRequest['slaBreachReason']> }): Promise<boolean> {
+        const updateResult = await flowApprovalRequestRepo()
+            .createQueryBuilder()
+            .update()
+            .set({ slaBreachReason: reason })
+            .where({ id: requestId, projectId, state: FlowApprovalRequestState.PENDING, slaBreachReason: IsNull() })
+            .returning(['id'])
+            .execute()
+        return (updateResult.raw?.length ?? 0) > 0
+    },
 })
+
+async function shiftDeadlineForPausedDuration({ requestId, projectId }: {
+    requestId: ApId
+    projectId: ProjectId
+}): Promise<void> {
+    await transaction(async (entityManager) => {
+        const locked = await flowApprovalRequestRepo(entityManager)
+            .createQueryBuilder('far')
+            .setLock('pessimistic_write')
+            .where({ id: requestId, projectId })
+            .getOneOrFail()
+        if (isNil(locked.pausedAt)) {
+            return
+        }
+        const resumeIso = new Date().toISOString()
+        const pausedMillis = new Date(resumeIso).getTime() - new Date(locked.pausedAt).getTime()
+        const newDeadline = locked.slaDeadlineAt
+            ? new Date(new Date(locked.slaDeadlineAt).getTime() + pausedMillis).toISOString()
+            : null
+        await flowApprovalRequestRepo(entityManager).update(
+            { id: locked.id },
+            { pausedAt: null, slaDeadlineAt: newDeadline },
+        )
+    })
+}
+
+function isViewerAllowed({ row, viewerId, visibleApproverIds }: {
+    row: FlowApprovalRequest
+    viewerId: UserId | null
+    visibleApproverIds: UserId[] | null
+}): boolean {
+    if (viewerId === null || visibleApproverIds === null) {
+        return true
+    }
+    const isSubmitter = row.submitterId === viewerId
+    const canApprove = visibleApproverIds.includes(viewerId)
+    return isSubmitter || canApprove
+}
 
 function assertStateIsPending(state: FlowApprovalRequestState): void {
     if (state !== FlowApprovalRequestState.PENDING) {
@@ -303,6 +436,7 @@ type SubmitParams = {
     projectId: ProjectId
     platformId: PlatformId
     requestedStatus: FlowStatus
+    priority: FlowApprovalPriority
 }
 
 type DecideParams = {
@@ -322,10 +456,18 @@ type WithdrawParams = {
     request: FastifyRequest
 }
 
+type PauseParams = {
+    requestId: ApId
+    projectId: ProjectId
+}
+
 type ListParams = {
     projectId: ProjectId
     state?: FlowApprovalRequestState
     flowVersionId?: ApId
     cursor?: Cursor
     limit?: number
+    viewerId?: UserId
+    mine?: boolean
+    overdue?: boolean
 }

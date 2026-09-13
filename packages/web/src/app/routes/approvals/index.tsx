@@ -1,11 +1,12 @@
 import {
+  FlowApprovalPriority,
   PopulatedFlowApprovalRequest,
   FlowApprovalRequestState,
 } from '@activepieces/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { ColumnDef } from '@tanstack/react-table';
 import { t } from 'i18next';
-import { CircleCheck, CircleX, Eye, ShieldAlert } from 'lucide-react';
+import { CircleCheck, CircleX, Eye, ShieldAlert, TimerOff } from 'lucide-react';
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -18,7 +19,10 @@ import {
 import { FormattedDate } from '@/components/custom/formatted-date';
 import { StatusIconWithText } from '@/components/custom/status-icon-with-text';
 import { Button } from '@/components/ui/button';
-import { flowApprovalsHooks } from '@/features/flow-approvals';
+import {
+  ApprovalSlaBadge,
+  flowApprovalsHooks,
+} from '@/features/flow-approvals';
 import { authenticationSession } from '@/lib/authentication-session';
 
 const stateVariant = (
@@ -38,8 +42,15 @@ const stateVariant = (
   }
 };
 
+const priorityText: Record<FlowApprovalPriority, string> = {
+  [FlowApprovalPriority.LOW]: t('Low'),
+  [FlowApprovalPriority.NORMAL]: t('Normal'),
+  [FlowApprovalPriority.HIGH]: t('High'),
+  [FlowApprovalPriority.URGENT]: t('Urgent'),
+};
+
 export function ApprovalsPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -47,6 +58,7 @@ export function ApprovalsPage() {
   const limit = searchParams.get(LIMIT_QUERY_PARAM)
     ? parseInt(searchParams.get(LIMIT_QUERY_PARAM)!)
     : 10;
+  const overdueOnly = searchParams.get('overdue') === 'true';
 
   useEffect(() => {
     queryClient.invalidateQueries({
@@ -59,6 +71,8 @@ export function ApprovalsPage() {
       cursor,
       limit,
       state: FlowApprovalRequestState.PENDING,
+      overdue: overdueOnly || undefined,
+      refetchInterval: 30_000,
     });
 
   const onReview = (row: PopulatedFlowApprovalRequest) =>
@@ -84,12 +98,28 @@ export function ApprovalsPage() {
       ),
     },
     {
+      accessorKey: 'priority',
+      header: () => <span>{t('Priority')}</span>,
+      cell: ({ row }) => (
+        <span className="text-muted-foreground text-sm">
+          {priorityText[row.original.priority]}
+        </span>
+      ),
+    },
+    {
       accessorKey: 'state',
       header: () => <span>{t('State')}</span>,
       cell: ({ row }) => {
         const { variant, Icon, text } = stateVariant(row.original.state);
         return <StatusIconWithText icon={Icon} text={text} variant={variant} />;
       },
+    },
+    {
+      accessorKey: 'sla',
+      header: () => <span>{t('SLA')}</span>,
+      cell: ({ row }) => (
+        <ApprovalSlaBadge sla={row.original.sla} showDetails />
+      ),
     },
     {
       accessorKey: 'submittedAt',
@@ -121,15 +151,35 @@ export function ApprovalsPage() {
     },
   ];
 
+  const toggleOverdue = () => {
+    const next = new URLSearchParams(searchParams);
+    if (overdueOnly) {
+      next.delete('overdue');
+    } else {
+      next.set('overdue', 'true');
+    }
+    setSearchParams(next);
+  };
+
   return (
     <div className="flex flex-col w-full p-6 gap-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {t('Pending approvals')}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {t('Flows awaiting approval to publish.')}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t('Pending approvals')}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {t('Flows awaiting approval to publish.')}
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant={overdueOnly ? 'default' : 'outline'}
+          onClick={toggleOverdue}
+        >
+          <TimerOff className="size-4 me-1" />
+          {overdueOnly ? t('Showing overdue only') : t('Overdue only')}
+        </Button>
       </div>
       <DataTable
         errorStateEntity={t('pending approvals')}
@@ -139,10 +189,16 @@ export function ApprovalsPage() {
         page={data}
         isLoading={isLoading}
         onRowClick={(row) => onReview(row)}
-        emptyStateTextTitle={t('No pending approvals')}
-        emptyStateTextDescription={t(
-          'When users request approval for sensitive flows, they will appear here.',
-        )}
+        emptyStateTextTitle={
+          overdueOnly ? t('No overdue approvals') : t('No pending approvals')
+        }
+        emptyStateTextDescription={
+          overdueOnly
+            ? t('No approval has passed its SLA deadline.')
+            : t(
+                'When users request approval for sensitive flows, they will appear here.',
+              )
+        }
         emptyStateIcon={
           <ShieldAlert className="size-12 text-muted-foreground" />
         }

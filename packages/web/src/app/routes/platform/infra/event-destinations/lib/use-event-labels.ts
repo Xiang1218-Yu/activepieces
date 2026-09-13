@@ -97,6 +97,9 @@ export const useEventLabels = (): EventLabelsMap => {
     [ApplicationEventName.FLOW_APPROVAL_WITHDRAWN]: {
       label: t('Flow approval withdrawn'),
     },
+    [ApplicationEventName.FLOW_APPROVAL_SLA_ESCALATED]: {
+      label: t('Flow approval SLA escalated'),
+    },
   };
 };
 

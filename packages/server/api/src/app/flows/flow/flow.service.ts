@@ -1,6 +1,6 @@
 import { ActivepiecesError, apId, assertNotNullOrUndefined, Cursor, ErrorCode, FlowId, FlowVersionId, isNil, Metadata, PlatformId, ProjectId, SeekPage, tryCatch, UserId } from '@activepieces/core-utils'
 import { apDayjs, apDayjsDuration } from '@activepieces/server-utils'
-import { CreateFlowRequest, Flow, FlowCreator, FlowOperationRequest, FlowOperationStatus, FlowOperationType, flowPieceUtil, FlowStatus, FlowTriggerType, FlowVersion, FlowVersionState, PopulatedFlow, SharedTemplate, TelemetryEventName, TemplateStatus, TemplateType, TriggerSource, UncategorizedFolderId, UserWithMetaInformation } from '@activepieces/shared'
+import { CreateFlowRequest, Flow, FlowApprovalPriority, FlowCreator, FlowOperationRequest, FlowOperationStatus, FlowOperationType, flowPieceUtil, FlowStatus, FlowTriggerType, FlowVersion, FlowVersionState, PopulatedFlow, SharedTemplate, TelemetryEventName, TemplateStatus, TemplateType, TriggerSource, UncategorizedFolderId, UserWithMetaInformation } from '@activepieces/shared'
 import dayjs from 'dayjs'
 import { FastifyBaseLogger } from 'fastify'
 import { EntityManager, In, IsNull, Not } from 'typeorm'
@@ -381,6 +381,7 @@ export const flowService = (log: FastifyBaseLogger) => ({
                         projectId,
                         platformId,
                         requestedStatus,
+                        priority: operation.request.approvalPriority ?? FlowApprovalPriority.NORMAL,
                     })
                     break
                 }

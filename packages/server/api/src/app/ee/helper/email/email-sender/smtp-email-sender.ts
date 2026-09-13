@@ -139,6 +139,7 @@ const getEmailSubject = (templateName: EmailTemplateData['name'], vars: Record<s
         'chat-notification': vars.subject,
         'platform-deleted': 'Your platform has been deleted',
         'login-code': `${vars.code} is your sign-in code`,
+        'approval-sla-escalation': `[${vars.projectName}] Approval overdue for "${vars.flowName}" ⏱️`,
     }
 
     return templateToSubject[templateName]
