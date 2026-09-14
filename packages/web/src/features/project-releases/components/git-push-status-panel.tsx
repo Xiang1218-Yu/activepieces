@@ -12,6 +12,7 @@ import {
   GitBranch,
   GitPullRequestArrow,
   Loader2,
+  Package,
   RefreshCw,
 } from 'lucide-react';
 
@@ -36,6 +37,7 @@ export function GitPushStatusPanel({
     return (
       <div className="rounded-lg border bg-muted/40 p-3 text-sm space-y-1.5">
         <RepoTargetRow repo={repo} />
+        <ReleaseContextRow releaseName={null} />
         <p className="text-muted-foreground">
           {t('No push has been performed in this project yet.')}
         </p>
@@ -47,6 +49,7 @@ export function GitPushStatusPanel({
     <div className="space-y-2">
       <div className="rounded-lg border bg-muted/40 p-3 text-sm space-y-1.5">
         <RepoTargetRow repo={repo} />
+        <ReleaseContextRow releaseName={operation.releaseName ?? null} />
         <LastOperationRow operation={operation} />
       </div>
       {operation.status === GitPushOperationStatus.IN_PROGRESS && (
@@ -114,6 +117,28 @@ function RepoTargetRow({ repo }: { repo: GitRepo }) {
         <div className="text-muted-foreground text-xs">
           {t('Branch')}: <span className="font-mono">{repo.branch}</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ReleaseContextRow({ releaseName }: { releaseName: string | null }) {
+  return (
+    <div className="flex items-start gap-2">
+      <Package className="size-4 mt-0.5 text-muted-foreground shrink-0" />
+      <div className="min-w-0">
+        <div className="text-muted-foreground text-xs">
+          {t('Current release')}
+        </div>
+        {releaseName ? (
+          <div className="font-medium truncate" title={releaseName}>
+            {releaseName}
+          </div>
+        ) : (
+          <div className="text-muted-foreground text-xs italic">
+            {t('No release created yet')}
+          </div>
+        )}
       </div>
     </div>
   );

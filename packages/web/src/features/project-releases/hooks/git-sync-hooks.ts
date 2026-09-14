@@ -76,10 +76,12 @@ export const gitSyncMutations = {
       mutationFn: ({
         gitSyncId,
         request,
+        releaseId,
       }: {
         gitSyncId: string;
         request: PushGitRepoRequest;
-      }) => gitSyncApi.startPush(gitSyncId, request),
+        releaseId?: string;
+      }) => gitSyncApi.startPush(gitSyncId, request, releaseId),
       onSuccess: (operation) => {
         const projectId = authenticationSession.getProjectId()!;
         queryClient.setQueryData(

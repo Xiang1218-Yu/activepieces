@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { ActivepiecesError, ErrorCode } from '@activepieces/core-utils'
-import { GitBranchType, GitPushOperationStatus, GitPushOperationType, PlatformRole, PrincipalType, PushTablesGitRepoRequest } from '@activepieces/shared'
+import { GitBranchType, GitPushOperationStatus, GitPushOperationType, PlatformRole, PrincipalType, ProjectReleaseType, PushTablesGitRepoRequest } from '@activepieces/shared'
 import { FastifyInstance } from 'fastify'
 import { StatusCodes } from 'http-status-codes'
 import { vi } from 'vitest'
@@ -41,7 +41,9 @@ import { databaseConnection } from '../../../../src/app/database/database-connec
 import { gitPushOperationService } from '../../../../src/app/ee/projects/project-release/git-sync/git-push-operation.service'
 import { generateMockToken } from '../../../helpers/auth'
 import {
+    createMockFile,
     createMockGitRepo,
+    createMockProjectRelease,
     mockAndSaveBasicSetup,
 } from '../../../helpers/mocks'
 import { setupTestEnvironment, teardownTestEnvironment } from '../../../helpers/test-setup'
@@ -74,7 +76,7 @@ afterEach(async () => {
 
 describe('Git Push Operations API', () => {
     async function setupRepo(): Promise<SetupRepoResult> {
-        const { mockProject, mockOwner } = await mockAndSaveBasicSetup({
+        const { mockProject, mockOwner, mockPlatform } = await mockAndSaveBasicSetup({
             platform: {},
             plan: { environmentsEnabled: true },
             user: { platformRole: PlatformRole.ADMIN },
@@ -90,7 +92,13 @@ describe('Git Push Operations API', () => {
             type: PrincipalType.USER,
             platform: { id: mockProject.platformId },
         })
-        return { gitRepo, token, projectId: mockProject.id, ownerId: mockOwner.id }
+        return {
+            gitRepo,
+            token,
+            projectId: mockProject.id,
+            ownerId: mockOwner.id,
+            platformId: mockPlatform.id,
+        }
     }
 
     function pushPayload(): PushTablePayload {
@@ -233,6 +241,160 @@ describe('Git Push Operations API', () => {
         expect(latest.status).toBe(GitPushOperationStatus.FAILED)
         expect(latest.failureReason).toBe('UNKNOWN')
     })
+
+    it('classifies a generic remote refusal as REMOTE_REJECTED', async () => {
+        const { gitRepo, token, projectId } = await setupRepo()
+        commitAndPushMock.mockRejectedValue(
+            new ActivepiecesError({
+                code: ErrorCode.GIT_PUSH_FAILED,
+                params: { message: 'remote: error: GH006: protected branch hook declined' },
+            }),
+        )
+
+        const created = await startPush(gitRepo.id, token)
+        expect(created?.statusCode).toBe(StatusCodes.CREATED)
+        const failed = await waitForLatestStatus(projectId, GitPushOperationStatus.FAILED)
+        expect(failed.failureReason).toBe('REMOTE_REJECTED')
+        expect(failed.errorMessage).toContain('protected branch')
+    })
+
+    it('keeps operation history when the git repo is deleted and refuses retry as NOT_CONFIGURED', async () => {
+        const { gitRepo, token, projectId } = await setupRepo()
+        commitAndPushMock.mockRejectedValueOnce(
+            new ActivepiecesError({
+                code: ErrorCode.GIT_PUSH_CONFLICT,
+                params: { message: 'non-fast-forward' },
+            }),
+        )
+        const created = await startPush(gitRepo.id, token)
+        expect(created?.statusCode).toBe(StatusCodes.CREATED)
+        const failed = await waitForLatestStatus(projectId, GitPushOperationStatus.FAILED)
+        expect(failed.failureReason).toBe('CONFLICT')
+
+        await databaseConnection().getRepository('git_repo').delete({ id: gitRepo.id })
+
+        const history = await getLatest(projectId, token)
+        const historyBody = history?.json()
+        expect(history?.statusCode).toBe(StatusCodes.OK)
+        expect(historyBody.id).toBe(failed.id)
+        expect(historyBody.gitRepoId).toBeNull()
+
+        const retry = await appOrThrow().inject({
+            method: 'POST',
+            url: `/api/v1/git-repos/push-operations/${failed.id}/retry`,
+            headers: { authorization: `Bearer ${token}` },
+        })
+        expect(retry.statusCode).toBe(StatusCodes.NOT_FOUND)
+        expect(retry.json().code).toBe(ErrorCode.GIT_REPO_NOT_CONFIGURED)
+    })
+
+    it('returns 404 when starting a push against a missing git repo', async () => {
+        const { token } = await setupRepo()
+        const response = await appOrThrow().inject({
+            method: 'POST',
+            url: `/api/v1/git-repos/${'nonExistingRepoId'}/push-operations`,
+            payload: pushPayload(),
+            headers: { authorization: `Bearer ${token}` },
+        })
+        expect(response.statusCode).toBe(StatusCodes.NOT_FOUND)
+    })
+
+    it('prevents a second instance starting a push while one is IN_PROGRESS (cross-instance)', async () => {
+        const { projectId, gitRepo, ownerId } = await setupRepo()
+        commitAndPushMock.mockImplementation((): Promise<void> => new Promise<void>(() => undefined))
+
+        await gitPushOperationService(appOrThrow().log).start({
+            projectId,
+            gitRepoId: gitRepo.id,
+            userId: ownerId,
+            request: pushPayload(),
+        })
+
+        await expect(gitPushOperationService(appOrThrow().log).start({
+            projectId,
+            gitRepoId: gitRepo.id,
+            userId: ownerId,
+            request: pushPayload(),
+        })).rejects.toMatchObject({ error: { code: ErrorCode.GIT_PUSH_IN_PROGRESS } })
+    })
+
+    it('recovers the in-progress operation and remote target after a page refresh', async () => {
+        const { gitRepo, token, projectId } = await setupRepo()
+        let releasePush: () => void = () => undefined
+        commitAndPushMock.mockImplementation((): Promise<void> => new Promise<void>((resolve) => {
+            releasePush = resolve
+        }))
+
+        const created = await startPush(gitRepo.id, token)
+        const createdBody = created?.json()
+
+        const firstFetch = await getLatest(projectId, token)
+        const firstBody = firstFetch?.json()
+        expect(firstBody.status).toBe(GitPushOperationStatus.IN_PROGRESS)
+        expect(firstBody.id).toBe(createdBody.id)
+        expect(firstBody.gitRepoId).toBe(gitRepo.id)
+        expect(firstBody.releaseName).toBeNull()
+
+        const secondFetch = await getLatest(projectId, token)
+        expect(secondFetch?.json().status).toBe(GitPushOperationStatus.IN_PROGRESS)
+
+        releasePush()
+
+        const finalBody = await pollLatest(() => getLatest(projectId, token), GitPushOperationStatus.SUCCEEDED)
+        expect(finalBody.gitRepoId).toBe(gitRepo.id)
+        expect(finalBody.finishedAt).toBeTruthy()
+    })
+
+    it('persists the explicit release id and name with the push operation', async () => {
+        const { gitRepo, token, projectId, ownerId, platformId } = await setupRepo()
+        const release = await saveProjectRelease({
+            projectId,
+            ownerId,
+            platformId,
+            name: 'Release 42',
+        })
+
+        const response = await appOrThrow().inject({
+            method: 'POST',
+            url: `/api/v1/git-repos/${gitRepo.id}/push-operations`,
+            payload: { ...pushPayload(), releaseId: release.id },
+            headers: { authorization: `Bearer ${token}` },
+        })
+        expect(response.statusCode).toBe(StatusCodes.CREATED)
+        const operation = await waitForLatestStatus(projectId, GitPushOperationStatus.SUCCEEDED)
+        expect(operation.releaseId).toBe(release.id)
+        expect(operation.releaseName).toBe('Release 42')
+
+        const afterRefresh = await getLatest(projectId, token)
+        const body = afterRefresh?.json()
+        expect(body.releaseId).toBe(release.id)
+        expect(body.releaseName).toBe('Release 42')
+    })
+
+    it('resolves the current release automatically when no releaseId is provided', async () => {
+        const { gitRepo, token, projectId, ownerId, platformId } = await setupRepo()
+        const older = await saveProjectRelease({ projectId, ownerId, platformId, name: 'older release' })
+        const latest = await saveProjectRelease({ projectId, ownerId, platformId, name: 'latest release' })
+        await databaseConnection().getRepository('project_release').update(older.id, {
+            created: new Date(Date.now() - 60000).toISOString(),
+        })
+        await databaseConnection().getRepository('project_release').update(latest.id, {
+            created: new Date().toISOString(),
+        })
+
+        await startPush(gitRepo.id, token)
+        const operation = await waitForLatestStatus(projectId, GitPushOperationStatus.SUCCEEDED)
+        expect(operation.releaseId).toBe(latest.id)
+        expect(operation.releaseName).toBe('latest release')
+    })
+
+    it('keeps a null release context when the project has no releases', async () => {
+        const { gitRepo, token, projectId } = await setupRepo()
+        await startPush(gitRepo.id, token)
+        const operation = await waitForLatestStatus(projectId, GitPushOperationStatus.SUCCEEDED)
+        expect(operation.releaseId).toBeNull()
+        expect(operation.releaseName).toBeNull()
+    })
 })
 
 type LatestOperationSnapshot = {
@@ -240,6 +402,9 @@ type LatestOperationSnapshot = {
     status: string
     failureReason: string | null
     errorMessage: string | null
+    gitRepoId: string
+    releaseId: string | null
+    releaseName: string | null
 }
 
 type SetupRepoResult = {
@@ -247,6 +412,7 @@ type SetupRepoResult = {
     token: string
     projectId: string
     ownerId: string
+    platformId: string
 }
 
 type PushTablePayload = PushTablesGitRepoRequest
@@ -266,6 +432,9 @@ async function waitForLatestStatus(projectId: string, status: GitPushOperationSt
                 status: operation.status,
                 failureReason: operation.failureReason ?? null,
                 errorMessage: operation.errorMessage ?? null,
+                gitRepoId: operation.gitRepoId,
+                releaseId: operation.releaseId ?? null,
+                releaseName: operation.releaseName ?? null,
             }
         }
         if (operation?.status === GitPushOperationStatus.FAILED) {
@@ -274,4 +443,41 @@ async function waitForLatestStatus(projectId: string, status: GitPushOperationSt
         await new Promise((resolve) => setTimeout(resolve, 50))
     }
     throw new Error(`latest operation did not reach status ${status}`)
+}
+
+async function pollLatest(fetchLatest: () => Promise<InjectResponse | undefined>, status: GitPushOperationStatus, retries = 40): Promise<Record<string, unknown>> {
+    for (let attempt = 0; attempt < retries; attempt++) {
+        const response = await fetchLatest()
+        const body = response?.json() as Record<string, unknown>
+        if (body?.status === status) {
+            return body
+        }
+        if (body?.status === GitPushOperationStatus.FAILED) {
+            throw new Error(`operation failed: ${String(body.failureReason)} ${String(body.errorMessage)}`)
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    throw new Error(`latest operation did not reach status ${status} over HTTP`)
+}
+
+async function saveProjectRelease(params: {
+    projectId: string
+    ownerId: string
+    platformId: string
+    name: string
+}): Promise<ReturnType<typeof createMockProjectRelease>> {
+    const file = createMockFile({
+        projectId: params.projectId,
+        platformId: params.platformId,
+    })
+    await databaseConnection().getRepository('file').save(file)
+    const release = createMockProjectRelease({
+        projectId: params.projectId,
+        importedBy: params.ownerId,
+        fileId: file.id,
+        name: params.name,
+        type: ProjectReleaseType.GIT,
+    })
+    await databaseConnection().getRepository('project_release').save(release)
+    return release
 }

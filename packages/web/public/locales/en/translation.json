@@ -1713,6 +1713,8 @@
   "The remote repository refused the push. Review the server error below for details.": "The remote repository refused the push. Review the server error below for details.",
   "The push could not be completed. Review the server error below and retry.": "The push could not be completed. Review the server error below and retry.",
   "No push has been performed in this project yet.": "No push has been performed in this project yet.",
+  "Current release": "Current release",
+  "No release created yet": "No release created yet",
   "Push everything": "Push everything",
   "Push flow": "Push flow",
   "Delete flow": "Delete flow",

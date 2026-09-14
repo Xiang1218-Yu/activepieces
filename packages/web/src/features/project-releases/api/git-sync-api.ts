@@ -24,10 +24,10 @@ export const gitSyncApi = {
   disconnect(repoId: string) {
     return api.delete<void>(`/v1/git-repos/${repoId}`);
   },
-  startPush(repoId: string, request: PushGitRepoRequest) {
+  startPush(repoId: string, request: PushGitRepoRequest, releaseId?: string) {
     return api.post<GitPushOperation>(
       `/v1/git-repos/${repoId}/push-operations`,
-      request,
+      { ...request, releaseId },
     );
   },
   retryPush(operationId: string) {

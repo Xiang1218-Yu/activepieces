@@ -58,7 +58,8 @@ export const gitRepoController: FastifyPluginCallbackZod = (
             projectId: gitRepo.projectId,
             gitRepoId: gitRepo.id,
             userId: request.principal.id,
-            request: request.body,
+            releaseId: request.body.releaseId,
+            request: stripReleaseContext(request.body),
         })
         await reply.status(StatusCodes.CREATED).send(operation)
     })
@@ -162,6 +163,10 @@ const ListRepoRequestSchema = {
     },
 }
 
+const CreatePushOperationRequestBody = PushGitRepoRequest.and(z.object({
+    releaseId: z.string().optional(),
+}))
+
 const CreatePushOperationRequestSchema = {
     config: {
         security: securityAccess.project([PrincipalType.USER], Permission.WRITE_PROJECT_RELEASE, {
@@ -175,11 +180,16 @@ const CreatePushOperationRequestSchema = {
         params: z.object({
             id: z.string(),
         }),
-        body: PushGitRepoRequest,
+        body: CreatePushOperationRequestBody,
         response: {
             [StatusCodes.CREATED]: GitPushOperation,
         },
     },
+}
+
+function stripReleaseContext(body: z.infer<typeof CreatePushOperationRequestBody>): PushGitRepoRequest {
+    const { releaseId: _releaseId, ...request } = body
+    return request
 }
 
 const LatestPushOperationRequestSchema = {

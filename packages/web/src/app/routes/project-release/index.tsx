@@ -171,7 +171,7 @@ const ProjectReleasesPage = () => {
         emptyStateIcon={<Package className="size-14" />}
         columns={columns}
         toolbarButtons={[
-          <PushEverythingDialog key="push">
+          <PushEverythingDialog key="push" releaseId={data?.data[0]?.id}>
             <Button
               variant="outline"
               disabled={!doesUserHavePermissionToWriteRelease}

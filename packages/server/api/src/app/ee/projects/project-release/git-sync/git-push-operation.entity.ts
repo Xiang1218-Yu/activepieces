@@ -12,7 +12,10 @@ export const GitPushOperationEntity = new EntitySchema<GitPushOperationSchema>({
     columns: {
         ...BaseColumnSchemaPart,
         projectId: ApIdSchema,
-        gitRepoId: ApIdSchema,
+        gitRepoId: {
+            ...ApIdSchema,
+            nullable: true,
+        },
         status: {
             type: String,
             enum: Object.values(GitPushOperationStatus),
@@ -28,6 +31,14 @@ export const GitPushOperationEntity = new EntitySchema<GitPushOperationSchema>({
             nullable: false,
         },
         commitMessage: {
+            type: String,
+            nullable: true,
+        },
+        releaseId: {
+            ...ApIdSchema,
+            nullable: true,
+        },
+        releaseName: {
             type: String,
             nullable: true,
         },
@@ -84,7 +95,7 @@ export const GitPushOperationEntity = new EntitySchema<GitPushOperationSchema>({
             type: 'many-to-one',
             target: 'git_repo',
             cascade: true,
-            onDelete: 'CASCADE',
+            onDelete: 'SET NULL',
             joinColumn: {
                 name: 'gitRepoId',
                 referencedColumnName: 'id',

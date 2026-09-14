@@ -4,20 +4,22 @@ import { GitPushFailureReason, GitPushOperation, GitPushOperationStatus, PushGit
 import { FastifyBaseLogger } from 'fastify'
 import { QueryFailedError } from 'typeorm'
 import { repoFactory } from '../../../../core/db/repo-factory'
+import { ProjectReleaseEntity } from '../project-release.entity'
 import { GitPushOperationEntity } from './git-push-operation.entity'
 import { gitSyncHandler } from './git-sync-handler'
 
 const repo = repoFactory<GitPushOperation>(GitPushOperationEntity)
+const projectReleaseRepo = repoFactory(ProjectReleaseEntity)
 
 const STALE_IN_PROGRESS_MS = 10 * 60 * 1000
 const MAX_ERROR_MESSAGE_LENGTH = 2000
 
 export const gitPushOperationService = (log: FastifyBaseLogger) => ({
     async start(params: StartParams): Promise<GitPushOperation> {
-        const { projectId, gitRepoId, request, userId } = params
+        const { projectId, gitRepoId, request, userId, releaseId = null } = params
         return memoryLock.runExclusive({
             key: `git-push-start:${projectId}`,
-            fn: () => startOperation({ projectId, gitRepoId, request, userId: userId ?? null, log }),
+            fn: () => startOperation({ projectId, gitRepoId, request, userId: userId ?? null, releaseId, log }),
         })
     },
 
@@ -33,10 +35,17 @@ export const gitPushOperationService = (log: FastifyBaseLogger) => ({
                 },
             })
         }
+        if (isNil(previous.gitRepoId)) {
+            throw new ActivepiecesError({
+                code: ErrorCode.GIT_REPO_NOT_CONFIGURED,
+                params: {},
+            })
+        }
         return gitPushOperationService(requestLog).start({
             projectId,
             gitRepoId: previous.gitRepoId,
             userId: previous.triggeredBy ?? undefined,
+            releaseId: previous.releaseId ?? undefined,
             request: previous.request,
         })
     },
@@ -60,11 +69,12 @@ export const gitPushOperationService = (log: FastifyBaseLogger) => ({
     },
 })
 
-async function startOperation({ projectId, gitRepoId, request, userId, log }: {
+async function startOperation({ projectId, gitRepoId, request, userId, releaseId, log }: {
     projectId: string
     gitRepoId: string
     request: PushGitRepoRequest
     userId: string | null
+    releaseId: string | null
     log: FastifyBaseLogger
 }): Promise<GitPushOperation> {
     const now = new Date()
@@ -91,6 +101,8 @@ async function startOperation({ projectId, gitRepoId, request, userId, log }: {
         })
     }
 
+    const releaseContext = await resolveReleaseContext({ projectId, releaseId })
+
     const operation: GitPushOperation = {
         id: apId(),
         created: now.toISOString(),
@@ -101,6 +113,8 @@ async function startOperation({ projectId, gitRepoId, request, userId, log }: {
         operationType: request.type,
         request,
         commitMessage: request.commitMessage ?? null,
+        releaseId: releaseContext.id,
+        releaseName: releaseContext.name,
         triggeredBy: userId,
         failureReason: null,
         errorMessage: null,
@@ -121,12 +135,36 @@ async function startOperation({ projectId, gitRepoId, request, userId, log }: {
     return operation
 }
 
+async function resolveReleaseContext({ projectId, releaseId }: {
+    projectId: string
+    releaseId: string | null
+}): Promise<{ id: string | null, name: string | null }> {
+    const release = isNil(releaseId)
+        ? await projectReleaseRepo().findOne({
+            where: { projectId },
+            order: { created: 'DESC' },
+        })
+        : await projectReleaseRepo().findOne({ where: { id: releaseId, projectId } })
+    if (isNil(release)) {
+        return { id: null, name: null }
+    }
+    return { id: release.id, name: release.name }
+}
+
 async function runInBackground({ operation, log }: { operation: GitPushOperation, log: FastifyBaseLogger }): Promise<void> {
     if (isNil(operation.triggeredBy)) {
         await markFailed({
             operationId: operation.id,
             reason: GitPushFailureReason.UNKNOWN,
             message: 'Push operation is missing the triggering user',
+        })
+        return
+    }
+    if (isNil(operation.gitRepoId)) {
+        await markFailed({
+            operationId: operation.id,
+            reason: GitPushFailureReason.NOT_CONFIGURED,
+            message: 'Git repository is no longer configured for this project',
         })
         return
     }
@@ -216,6 +254,7 @@ type StartParams = {
     projectId: string
     gitRepoId: string
     userId?: string
+    releaseId?: string
     request: PushGitRepoRequest
 }
 

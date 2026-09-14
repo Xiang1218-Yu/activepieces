@@ -43,6 +43,7 @@ import { authenticationSession } from '@/lib/authentication-session';
 
 type PushEverythingDialogProps = {
   children?: React.ReactNode;
+  releaseId?: string;
 };
 
 const PushEverythingDialog = (props: PushEverythingDialogProps) => {
@@ -103,7 +104,11 @@ const PushEverythingDialog = (props: PushEverythingDialogProps) => {
   const handleSubmit = (request: PushEverythingGitRepoRequest) => {
     assertNotNullOrUndefined(gitSync, 'gitSync');
     setInlineError(null);
-    startPush({ gitSyncId: gitSync.id, request });
+    startPush({
+      gitSyncId: gitSync.id,
+      request,
+      releaseId: props.releaseId,
+    });
   };
 
   return (
