@@ -1,6 +1,6 @@
 import { ActivepiecesError, ErrorCode, isNil, spreadIfDefined, tryCatch } from '@activepieces/core-utils'
 import { agentAiUtils } from '@activepieces/server-utils'
-import { AgentRunSource, agentToolClassification, ExecuteAgentToolRequest, ExecuteAgentToolResponse, ExecuteFlowToolRequest, ExecuteFlowToolResponse, ExecuteKnowledgeBaseToolRequest, ExecuteKnowledgeBaseToolResponse, ExecutePieceToolRequest, ExecutePieceToolResponse, FlowActionType, flowStructureUtil } from '@activepieces/shared'
+import { AgentPieceToolMetadata, AgentRunSource, agentToolClassification, ExecuteAgentToolRequest, ExecuteAgentToolResponse, ExecuteFlowToolRequest, ExecuteFlowToolResponse, ExecuteKnowledgeBaseToolRequest, ExecuteKnowledgeBaseToolResponse, ExecutePieceToolRequest, ExecutePieceToolResponse, FlowActionType, flowStructureUtil } from '@activepieces/shared'
 import { embed } from 'ai'
 import { FastifyBaseLogger } from 'fastify'
 import { agentApprovalGate } from '.././agent-approval-gate'
@@ -10,6 +10,7 @@ import { pieceToolRunner } from '.././tools/piece-tool-runner'
 import { flowService } from '../../../flows/flow/flow.service'
 import { knowledgeBaseService } from '../../../knowledge-base/knowledge-base.service'
 import { extractMcpTriggerInput, resolveRunnableFlow, runFlowAsTool } from '../../../mcp/mcp-server-builder'
+import { pieceMetadataService } from '../../../pieces/metadata/piece-metadata-service'
 
 import { byteLengthOf, CONFIGURED_TOOL_SOURCES, configuredToolConversationOrThrow, confinedProjectFor, connectionForConfiguredTool, pinConnectionToAgent } from './rpc-shared'
 
@@ -19,6 +20,13 @@ export const toolExecutionRpc = (log: FastifyBaseLogger) => ({
         const model = await agentHelpers.resolveFastModel({ platformId, scope: { type: 'project', projectId }, log, ...spreadIfDefined('provider', input.provider), ...spreadIfDefined('providerConfigId', input.providerConfigId) })
         const piece = { pieceName: input.piece.pieceName, actionName: input.piece.actionName, ...spreadIfDefined('pieceVersion', input.piece.pieceVersion) }
         const connection = await connectionForConfiguredTool({ piece: input.piece, projectId, platformId, log })
+        const blocked = await configuredToolBlockReason({ piece: input.piece, connectionExternalId: connection.externalId, projectId, platformId, log })
+        if (!isNil(blocked)) {
+            // The agent keeps running and every other tool stays reachable: a missing connection only
+            // blocks this one tool, reported in the shape a tool result already has.
+            log.warn({ conversation: { id: input.conversationId }, tool: { name: input.toolName }, reason: blocked.structuredContent?.reason ?? 'unavailable' }, '[agentRpc#executePieceTool] Tool blocked for this run')
+            return { result: blocked, resolvedInput: {} }
+        }
         const { data: run, error: runError } = await tryCatch(async () => {
             const { resolvedInput, actionDisplayName } = await pieceToolRunner.resolveInput({
                 model,
@@ -213,6 +221,41 @@ export const toolExecutionRpc = (log: FastifyBaseLogger) => ({
 
 })
 
+
+// A configured tool that cannot authenticate is blocked for this single call only: the agent run
+// and the conversation stay alive with every other tool reachable, instead of one missing account
+// taking the whole session down.
+async function configuredToolBlockReason({ piece, connectionExternalId, projectId, platformId, log }: {
+    piece: AgentPieceToolMetadata
+    connectionExternalId?: string
+    projectId: string
+    platformId: string
+    log: FastifyBaseLogger
+}): Promise<ExecutePieceToolResponse['result'] | null> {
+    const { data: metadata, error } = await tryCatch(() => pieceMetadataService(log).get({
+        name: piece.pieceName,
+        projectId,
+        platformId,
+        ...spreadIfDefined('version', piece.pieceVersion),
+    }))
+    if (error || isNil(metadata)) {
+        return null
+    }
+    const action = metadata.actions[piece.actionName]
+    const pieceHasAuth = !isNil(metadata.auth)
+    const needsAccount = pieceHasAuth && action?.requireAuth !== false
+    if (!needsAccount || !isNil(connectionExternalId)) {
+        return null
+    }
+    return {
+        content: [{
+            type: 'text',
+            text: `The "${piece.actionName}" action of ${piece.pieceName.replace('@activepieces/piece-', '')} needs a connected account, and none is pinned to this tool. This tool is blocked until a connection is added in the agent configuration — do something else instead of calling it again.`,
+        }],
+        structuredContent: { blocked: true, reason: 'missing-connection', pieceName: piece.pieceName, actionName: piece.actionName },
+        isError: true,
+    }
+}
 
 const MAX_APPROVAL_BLOCK_MS = 50_000
 const CHAT_ONLY_TOOL_PREFIX = '__'

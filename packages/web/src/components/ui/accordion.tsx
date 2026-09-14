@@ -19,10 +19,12 @@ function Accordion({
 
 function AccordionItem({
   className,
+  ref,
   ...props
-}: React.ComponentProps<typeof AccordionPrimitive.Item>) {
+}: React.ComponentPropsWithRef<typeof AccordionPrimitive.Item>) {
   return (
     <AccordionPrimitive.Item
+      ref={ref}
       data-slot="accordion-item"
       className={cn(className)}
       {...props}

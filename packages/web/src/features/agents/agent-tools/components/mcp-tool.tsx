@@ -16,24 +16,45 @@ import {
 } from '@/components/ui/tooltip';
 
 import { useMcpToolDialogStore } from '../stores/mcp-tools';
+import { useSortableToolRow } from './sortable-tool-row';
+import { cn } from '@/lib/utils';
 
 type AgentMcpToolsAccordionProps = {
   disabled?: boolean;
   tools: AgentMcpTool[];
   removeTool: (toolName: string) => void;
+  sortable?: boolean;
 };
 
 export const AgentMcpToolComponent = ({
   disabled,
   tools,
   removeTool,
+  sortable,
 }: AgentMcpToolsAccordionProps) => {
   const { setShowAddMcpDialog } = useMcpToolDialogStore();
+  const sortableRow = useSortableToolRow();
+  const dragHandle = sortable ? sortableRow?.handle : null;
 
   return (
-    <AccordionItem value="mcp" className="border-b last:border-0">
+    <AccordionItem
+      value="mcp"
+      ref={sortable ? sortableRow?.setNodeRef : undefined}
+      style={sortable ? sortableRow?.style : undefined}
+      className={cn(
+        'border-b last:border-0',
+        sortable &&
+          sortableRow?.isDragging &&
+          'relative z-10 opacity-80 shadow-md',
+      )}
+    >
       <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-accent transition-all">
         <div className="flex items-center gap-3">
+          {dragHandle && (
+            <span onClick={(event) => event.stopPropagation()}>
+              {dragHandle}
+            </span>
+          )}
           <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center">
             <McpSvg className="size-3.5" />
           </div>

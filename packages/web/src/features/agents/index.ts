@@ -10,6 +10,8 @@ export { ConnectionDropdown } from './agent-tools/piece-tool-dialog/connection-s
 export { PieceActionsList } from './agent-tools/piece-tool-dialog/dialog-pages/piece-actions-list';
 export { PiecesList } from './agent-tools/piece-tool-dialog/dialog-pages/pieces-list';
 export { usePieceToolsDialogStore } from './agent-tools/stores/pieces-tools';
+export { SessionToolsPopover } from './agent-tools/session-tools-popover';
+export { useSessionToolStore } from './agent-tools/stores/session-disabled-tools';
 export { AIModelSelector, PROVIDER_EMBEDDING_MODELS } from './ai-model';
 export { SUPPORTED_AI_PROVIDERS } from './ai-providers';
 export type { AiProviderInfo } from './ai-providers';

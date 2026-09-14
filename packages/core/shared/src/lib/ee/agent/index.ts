@@ -2,7 +2,7 @@ import { AgentPromptOverride, AgentRunSource } from '@activepieces/core-executio
 import { BaseModelSchema, Nullable } from '@activepieces/core-utils'
 import { z } from 'zod'
 import { formErrors } from '../../form-errors'
-import { MAX_AGENT_TEXT_LENGTH } from './agent'
+import { MAX_AGENT_TEXT_LENGTH, MAX_AGENT_TOOLS } from './agent'
 
 const MAX_FILE_BINARY_SIZE = 10 * 1024 * 1024
 const MAX_FILE_BASE64_CHARS = Math.ceil(MAX_FILE_BINARY_SIZE * 4 / 3)
@@ -262,6 +262,10 @@ export const SendAgentMessageRequest = z.object({
     runId: z.string().optional(),
     files: z.array(AgentMessageFile).max(10).optional(),
     messageSource: AgentMessageSource.optional(),
+    // Session-scoped suppression: never persisted on the agent, and applied only to the run started
+    // by this message. A missing permission/connection on one tool switches that single tool off,
+    // instead of hiding the whole conversation.
+    disabledToolNames: z.array(z.string().min(1)).max(MAX_AGENT_TOOLS).optional(),
 }).refine(
     (val) => val.content.length > 0 || (val.files && val.files.length > 0),
     { message: formErrors.messageRequiresContentOrFiles },

@@ -38,6 +38,7 @@ export function ChatBottomBar({
   placeholder,
   banner,
   recede,
+  toolsControl,
 }: ChatBottomBarProps) {
   const [composerEngaged, setComposerEngaged] = useState(false);
   const pendingActionPreview = useChatStoreContext((s) =>
@@ -123,6 +124,7 @@ export function ChatBottomBar({
   return (
     <div className="flex flex-col gap-2">
       {activeCard}
+      {toolsControl && <div className="flex justify-start">{toolsControl}</div>}
       <div
         className={cn(
           'overflow-hidden rounded-2xl border transition-colors',
@@ -142,7 +144,7 @@ export function ChatBottomBar({
           placeholder={
             activeCard
               ? t('Or reply in your own words')
-              : placeholder ?? t('Reply...')
+              : (placeholder ?? t('Reply...'))
           }
           rightActions={
             hideModelSelector === true ? null : (
@@ -231,4 +233,5 @@ type ChatBottomBarProps = {
   placeholder?: string;
   banner?: ReactNode;
   recede?: boolean;
+  toolsControl?: ReactNode;
 };

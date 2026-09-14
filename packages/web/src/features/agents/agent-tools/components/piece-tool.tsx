@@ -1,7 +1,7 @@
 import { isNil } from '@activepieces/core-utils';
 import { AgentPieceTool, mcpToolNameUtils } from '@activepieces/shared';
 import { t } from 'i18next';
-import { Plus, Puzzle, X } from 'lucide-react';
+import { Link2, Plus, Puzzle, ShieldQuestion, X } from 'lucide-react';
 import { useMemo } from 'react';
 
 import {
@@ -22,8 +22,10 @@ import { PieceStepMetadataWithSuggestions } from '@/features/pieces/types';
 import { authenticationSession } from '@/lib/authentication-session';
 import { cn } from '@/lib/utils';
 
+import { pieceActionRequirements } from '../lib/agent-tool-requirements';
 import { agentToolAccount } from '../lib/agent-tool-account';
 import { usePieceToolsDialogStore } from '../stores/pieces-tools';
+import { useSortableToolRow } from './sortable-tool-row';
 
 const CONNECTION_PAGE_SIZE = 1000;
 
@@ -31,13 +33,17 @@ type AgentPieceToolProps = {
   disabled?: boolean;
   tools: AgentPieceTool[];
   removeTool: (toolName: string) => void;
+  sortable?: boolean;
 };
 
 export const AgentPieceToolComponent = ({
   disabled,
   tools,
   removeTool,
+  sortable,
 }: AgentPieceToolProps) => {
+  const sortableRow = useSortableToolRow();
+  const dragHandle = sortable ? sortableRow?.handle : null;
   const { openAddPieceToolDialog } = usePieceToolsDialogStore();
 
   const { metadata } = stepsHooks.useAllStepsMetadata({
@@ -113,12 +119,24 @@ export const AgentPieceToolComponent = ({
   return (
     <AccordionItem
       value={pieceMetadata.pieceName}
-      className="border-b last:border-0"
+      ref={sortable ? sortableRow?.setNodeRef : undefined}
+      style={sortable ? sortableRow?.style : undefined}
+      className={cn(
+        'border-b last:border-0',
+        sortable &&
+          sortableRow?.isDragging &&
+          'relative z-10 opacity-80 shadow-md',
+      )}
     >
       <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-accent transition-all">
-        <div className="flex w-full items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center">
+        <div className="flex w-full items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-3">
+            {sortable && dragHandle && (
+              <span onClick={(event) => event.stopPropagation()}>
+                {dragHandle}
+              </span>
+            )}
+            <div className="h-8 w-8 shrink-0 rounded-md bg-muted flex items-center justify-center">
               {pieceMetadata.logoUrl ? (
                 <img
                   src={pieceMetadata.logoUrl}
@@ -130,7 +148,7 @@ export const AgentPieceToolComponent = ({
               )}
             </div>
 
-            <span className="text-sm font-medium">
+            <span className="truncate text-sm font-medium">
               {pieceMetadata.displayName}
             </span>
           </div>
@@ -153,19 +171,38 @@ export const AgentPieceToolComponent = ({
       <AccordionContent className="px-4 py-2">
         <div className="flex flex-wrap gap-2">
           {tools.map((tool) => {
-            const toolName = pieceMetadata.suggestedActions?.find(
-              (action) =>
+            const action = pieceMetadata.suggestedActions?.find(
+              (candidate) =>
                 mcpToolNameUtils.createPieceToolName(
                   pieceMetadata.pieceName,
-                  action.name,
+                  candidate.name,
                 ) === tool.toolName,
-            )?.displayName;
+            );
+            const toolName = action?.displayName;
+            const pinnedExternalId = tool.pieceMetadata.predefinedInput?.auth;
+            const requirements = pieceActionRequirements({
+              actionName: tool.pieceMetadata.actionName,
+              needsConnection: agentToolAccount.requiresAccount({
+                pieceHasAuth: !isNil(pieceMetadata.auth),
+                actionRequireAuth: action?.requireAuth,
+              }),
+            });
+            const connectionMissing = requirements.some(
+              (requirement) => requirement.kind === 'connection',
+            )
+              ? isNil(pinnedExternalId) ||
+                isNil(
+                  connections?.data.find(
+                    (connection) => connection.externalId === pinnedExternalId,
+                  ),
+                )
+              : false;
             return (
               <div
                 key={tool.toolName}
                 onClick={() => handleEditTool(tool)}
                 className={`
-                  group flex items-center gap-2 px-3 py-1 cursor-pointer
+                  group flex items-center gap-1.5 px-3 py-1 cursor-pointer
                   rounded-full border bg-muted/50
                   ${disabled ? 'opacity-50 pointer-events-none' : ''}
                 `}
@@ -173,6 +210,32 @@ export const AgentPieceToolComponent = ({
                 <span className="text-xs font-medium">
                   {toolName || tool.toolName}
                 </span>
+                {requirements.map((requirement) => (
+                  <Tooltip key={requirement.kind}>
+                    <TooltipTrigger
+                      asChild
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <span
+                        className={cn(
+                          'flex size-4 items-center justify-center rounded-full',
+                          requirement.kind === 'connection'
+                            ? connectionMissing
+                              ? 'bg-destructive/10 text-destructive'
+                              : 'bg-success/10 text-success'
+                            : 'bg-muted text-muted-foreground',
+                        )}
+                      >
+                        {requirement.kind === 'connection' ? (
+                          <Link2 className="size-2.5" />
+                        ) : (
+                          <ShieldQuestion className="size-2.5" />
+                        )}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>{requirement.label}</TooltipContent>
+                  </Tooltip>
+                ))}
 
                 <div className="flex items-center gap-1">
                   <Tooltip>

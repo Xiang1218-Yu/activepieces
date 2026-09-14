@@ -15,24 +15,45 @@ import {
 } from '@/components/ui/tooltip';
 
 import { useFlowToolDialogStore } from '../stores/flows-tools';
+import { useSortableToolRow } from './sortable-tool-row';
+import { cn } from '@/lib/utils';
 
 type AgentFlowToolsAccordionProps = {
   disabled?: boolean;
   tools: AgentFlowTool[];
   removeTool: (toolName: string) => void;
+  sortable?: boolean;
 };
 
 export const AgentFlowToolComponent = ({
   disabled,
   tools,
   removeTool,
+  sortable,
 }: AgentFlowToolsAccordionProps) => {
   const { setShowAddFlowDialog } = useFlowToolDialogStore();
+  const sortableRow = useSortableToolRow();
+  const dragHandle = sortable ? sortableRow?.handle : null;
 
   return (
-    <AccordionItem value="flows" className="border-b last:border-0">
+    <AccordionItem
+      value="flows"
+      ref={sortable ? sortableRow?.setNodeRef : undefined}
+      style={sortable ? sortableRow?.style : undefined}
+      className={cn(
+        'border-b last:border-0',
+        sortable &&
+          sortableRow?.isDragging &&
+          'relative z-10 opacity-80 shadow-md',
+      )}
+    >
       <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-accent transition-all">
         <div className="flex items-center gap-3">
+          {dragHandle && (
+            <span onClick={(event) => event.stopPropagation()}>
+              {dragHandle}
+            </span>
+          )}
           <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center">
             <Workflow className="size-4 text-muted-foreground" />
           </div>

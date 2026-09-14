@@ -67,16 +67,26 @@ async function sendMessage({
   runId,
   files,
   messageSource,
+  disabledToolNames,
 }: {
   conversationId: string;
   content: string;
   runId?: string;
   files?: Array<{ name: string; mimeType: string; data: string }>;
   messageSource?: AgentMessageSource;
+  disabledToolNames?: string[];
 }): Promise<{ conversationId: string; runId?: string }> {
   return api.post<{ conversationId: string; runId?: string }>(
     `/v1/agents/conversations/${conversationId}/messages`,
-    { content, runId, files, messageSource },
+    {
+      content,
+      runId,
+      files,
+      messageSource,
+      ...(disabledToolNames && disabledToolNames.length > 0
+        ? { disabledToolNames }
+        : {}),
+    },
   );
 }
 

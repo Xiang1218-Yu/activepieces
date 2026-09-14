@@ -41,14 +41,22 @@ const DELIVERY_MAX_ATTEMPTS = 5
 export const executeAgentRunJob: JobHandler<ExecuteAgentRunJobData, FireAndForgetJobResult> = {
     jobType: WorkerJobType.EXECUTE_AGENT_RUN,
     async execute(ctx: JobContext, data: ExecuteAgentRunJobData): Promise<FireAndForgetJobResult> {
-        const { conversationId, runId, projectId, platformId, userId, userMessage, modelName, files, promptOverride, dryRun, discoveryOnly, source: jobSource, flowRunId, waitpointId } = data
+        const { conversationId, runId, projectId, platformId, userId, userMessage, modelName, files, promptOverride, dryRun, discoveryOnly, source: jobSource, flowRunId, waitpointId, disabledToolNames } = data
         const log = ctx.log.child({ conversation: { id: conversationId }, ...spreadIfDefined('run', isNil(runId) ? undefined : { id: runId }) })
 
-        const configuredTools = agentToolPolicy.withValidNames({ tools: data.tools ?? [] })
-        const configuredFlowTools = agentToolPolicy.withValidNames({ tools: data.flowTools ?? [], reserved: configuredTools.map((tool) => tool.toolName) })
+        // Turn-scoped suppression, sent with the message: drop the tool from this run's snapshot
+        // only. The job was enqueued from a saved config copy, so an edit published mid-turn never
+        // reaches an in-flight run.
+        const suppressedNames = new Set((disabledToolNames ?? []).map((name) => name.trim()).filter((name) => name.length > 0))
+        const suppress = (tool: AgentTool): boolean => !suppressedNames.has(tool.toolName)
+        const suppressFlow = (tool: ResolvedAgentFlowTool): boolean => !suppressedNames.has(tool.toolName)
+        const configuredTools = agentToolPolicy.withValidNames({ tools: (data.tools ?? []).filter(suppress) })
+        const configuredFlowTools = agentToolPolicy.withValidNames({ tools: (data.flowTools ?? []).filter(suppressFlow), reserved: configuredTools.map((tool) => tool.toolName) })
         const configuredPieceTools = configuredTools.filter(isPieceTool)
         const configuredKnowledgeBaseTools = configuredTools.filter(isKnowledgeBaseTool)
-        const reportedTools = [...configuredPieceTools, ...configuredKnowledgeBaseTools]
+        // Saved-array order (pieces and knowledge interleaved as arranged), not pieces-then-KB —
+        // the run timeline and chat tool list must present the same sequence as the agent page.
+        const reportedTools = configuredTools.filter((tool) => tool.type === AgentToolType.PIECE || tool.type === AgentToolType.KNOWLEDGE_BASE)
 
         const sendEventWithRetry = ({ event }: { event: AgentEvent }) =>
             retryWithBackoff({
@@ -198,6 +206,7 @@ export const executeAgentRunJob: JobHandler<ExecuteAgentRunJobData, FireAndForge
                 agentsAvailable: config.agentsAvailable,
                 abortSignal: abortController.signal,
                 source,
+                configuredTools,
                 configuredPieceTools,
                 configuredFlowTools,
                 configuredKnowledgeBaseTools,
@@ -466,7 +475,7 @@ function isKnowledgeBaseTool(tool: AgentTool): tool is AgentKnowledgeBaseTool {
     return tool.type === AgentToolType.KNOWLEDGE_BASE
 }
 
-function buildToolSet({ ctx, eventEmitter, log, phaseState, taintState, mcpToolSet, webTools, projects, projectId, conversationId, runId, platformId, userId, userEmail, guides, dryRun, discoveryOnly, emailEnabled, agentsAvailable, abortSignal, source, provider, providerConfigId, configuredPieceTools, configuredFlowTools, configuredKnowledgeBaseTools, structuredOutput, captureStructured }: {
+function buildToolSet({ ctx, eventEmitter, log, phaseState, taintState, mcpToolSet, webTools, projects, projectId, conversationId, runId, platformId, userId, userEmail, guides, dryRun, discoveryOnly, emailEnabled, agentsAvailable, abortSignal, source, provider, providerConfigId, configuredTools, configuredPieceTools, configuredFlowTools, configuredKnowledgeBaseTools, structuredOutput, captureStructured }: {
     ctx: JobContext
     provider: AIProviderName
     providerConfigId: string
@@ -489,6 +498,7 @@ function buildToolSet({ ctx, eventEmitter, log, phaseState, taintState, mcpToolS
     emailEnabled: boolean
     agentsAvailable: boolean
     abortSignal: AbortSignal
+    configuredTools: AgentTool[]
     configuredPieceTools: AgentPieceTool[]
     configuredFlowTools: ResolvedAgentFlowTool[]
     configuredKnowledgeBaseTools: AgentKnowledgeBaseTool[]
@@ -651,7 +661,7 @@ function buildToolSet({ ctx, eventEmitter, log, phaseState, taintState, mcpToolS
 
     // Listed, not subtracted. Everything else in the chat set assumes someone is reading and can
     // answer, and an agent that asks an empty room reads the silence as a refusal and stops.
-    const configuredTools = agentWorkerTools.createConfiguredPieceTools({
+    const configuredPieceToolSet = agentWorkerTools.createConfiguredPieceTools({
         tools: dryRun || discoveryOnly ? [] : configuredPieceTools,
         runPieceTool: ({ toolName, instruction, piece }) => ctx.apiClient.executePieceTool({ conversationId, toolName, instruction, piece, provider, providerConfigId }),
         taintState,
@@ -671,6 +681,24 @@ function buildToolSet({ ctx, eventEmitter, log, phaseState, taintState, mcpToolS
     const completionTool = structuredOutput.length === 0
         ? {}
         : agentWorkerTools.createStructuredOutputTool({ fields: structuredOutput, capture: captureStructured })
+    // The author-configured set, in saved-array order: piece, knowledge and (when resolved by the
+    // API) flow tools. Duplicate keys keep their earlier position, so the model reaches tools in
+    // the same order the person arranged them on the agent page and in the chat session list.
+    const orderedConfiguredTools: ToolSet = {}
+    for (const configured of configuredTools) {
+        const entry = configured.type === AgentToolType.KNOWLEDGE_BASE
+            ? knowledgeBaseTools[configured.toolName]
+            : configuredPieceToolSet[configured.toolName]
+        if (entry) {
+            orderedConfiguredTools[configured.toolName] = entry
+        }
+    }
+    for (const configured of configuredFlowTools) {
+        const entry = configuredFlowToolSet[configured.toolName]
+        if (entry && isNil(orderedConfiguredTools[configured.toolName])) {
+            orderedConfiguredTools[configured.toolName] = entry
+        }
+    }
     return agentToolPolicy.selectToolsForSource({
         source,
         groups: {
@@ -684,7 +712,8 @@ function buildToolSet({ ctx, eventEmitter, log, phaseState, taintState, mcpToolS
             email: emailTools,
             agentSurface: agentSurfaceTools,
             mcp: mcpTools as ToolSet,
-            configuredPiece: configuredTools,
+            configured: orderedConfiguredTools,
+            configuredPiece: configuredPieceToolSet,
             configuredFlow: configuredFlowToolSet,
             knowledgeBase: knowledgeBaseTools,
             completion: completionTool,

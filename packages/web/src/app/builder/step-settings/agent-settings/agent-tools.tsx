@@ -5,6 +5,23 @@ import type {
   AgentPieceTool,
   AgentTool,
 } from '@activepieces/shared';
+import {
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  restrictToParentElement,
+  restrictToVerticalAxis,
+} from '@dnd-kit/modifiers';
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import { t } from 'i18next';
 import { Plus } from 'lucide-react';
 
@@ -20,6 +37,11 @@ import {
   KnowledgeBaseSection,
 } from '@/features/agents';
 import { AddRow } from '@/features/agents/agent-tools/components/add-row';
+import { SortableToolRow } from '@/features/agents/agent-tools/components/sortable-tool-row';
+import {
+  groupConfiguredTools,
+  moveToolGroup,
+} from '@/features/agents/lib/agent-tool-order';
 import { cn } from '@/lib/utils';
 
 import { AgentPieceDialog } from './piece-tool-dialog';
@@ -59,63 +81,111 @@ export const AgentTools = ({
     onToolsUpdate(tools.filter((tool) => toolName !== tool.toolName));
   };
 
-  const flowTools = tools.filter((tool) => tool.type === AgentToolType.FLOW);
-  const mcpTools = tools.filter((tool) => tool.type === AgentToolType.MCP);
+  // Group order follows the saved array: each group takes the position of its first tool, which is
+  // the order the model reaches them in a run and the order the chat session list shows them in.
+  const orderedGroups = groupConfiguredTools(tools);
   const kbTools = tools.filter(
     (tool): tool is AgentKnowledgeBaseTool =>
       tool.type === AgentToolType.KNOWLEDGE_BASE,
   );
-  const pieceToToolMap = tools
-    .filter((tool) => tool.type === AgentToolType.PIECE)
-    .reduce<Record<string, AgentPieceTool[]>>((acc, tool) => {
-      const key = tool.pieceMetadata?.pieceName;
-
-      if (!key) return acc;
-
-      (acc[key] ??= []).push(tool);
-      return acc;
-    }, {});
 
   const asRows = layout === 'rows';
+
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 150, tolerance: 8 },
+    }),
+    useSensor(KeyboardSensor),
+  );
+
+  const handleReorder = (activeId: string, overId: string) => {
+    if (activeId === overId) return;
+    onToolsUpdate(moveToolGroup(tools, activeId, overId));
+  };
+
+  const groupedTools = (
+    <Accordion
+      type="single"
+      collapsible
+      className={cn(
+        'overflow-hidden shadow-none',
+        asRows ? 'rounded-[10px] border' : 'rounded-md border',
+      )}
+    >
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+        onDragEnd={({ active, over }) => {
+          if (over) {
+            handleReorder(String(active.id), String(over.id));
+          }
+        }}
+      >
+        <SortableContext
+          items={orderedGroups.map((group) => group.key)}
+          strategy={verticalListSortingStrategy}
+        >
+          {orderedGroups.map((group) => {
+            if (group.kind === 'piece') {
+              return (
+                <SortableToolRow key={group.key} id={group.key}>
+                  <AgentPieceToolComponent
+                    disabled={disabled}
+                    tools={group.tools as AgentPieceTool[]}
+                    removeTool={removeTool}
+                    sortable={asRows}
+                  />
+                </SortableToolRow>
+              );
+            }
+            if (group.kind === AgentToolType.FLOW) {
+              return (
+                <SortableToolRow key={group.key} id={group.key}>
+                  <AgentFlowToolComponent
+                    disabled={disabled}
+                    tools={
+                      group.tools as Extract<
+                        AgentTool,
+                        { type: AgentToolType.FLOW }
+                      >[]
+                    }
+                    removeTool={removeTool}
+                    sortable={asRows}
+                  />
+                </SortableToolRow>
+              );
+            }
+            return (
+              <SortableToolRow key={group.key} id={group.key}>
+                <AgentMcpToolComponent
+                  disabled={disabled}
+                  tools={
+                    group.tools as Extract<
+                      AgentTool,
+                      { type: AgentToolType.MCP }
+                    >[]
+                  }
+                  removeTool={removeTool}
+                  sortable={asRows}
+                />
+              </SortableToolRow>
+            );
+          })}
+        </SortableContext>
+      </DndContext>
+    </Accordion>
+  );
 
   return (
     <div>
       {!asRows && <h2 className="text-sm font-medium">{t('Agent Tools')}</h2>}
 
       <div className={cn(!asRows && 'mt-2')}>
-        {flowTools.length +
-          mcpTools.length +
-          Object.keys(pieceToToolMap).length >
-        0 ? (
+        {orderedGroups.length > 0 ? (
           <>
-            <Accordion
-              type="single"
-              collapsible
-              className="border rounded-md overflow-hidden shadow-none"
-            >
-              {Object.entries(pieceToToolMap).map(([pieceName, tools]) => (
-                <AgentPieceToolComponent
-                  key={pieceName}
-                  disabled={disabled}
-                  tools={tools}
-                  removeTool={removeTool}
-                />
-              ))}
-              {flowTools.length > 0 && (
-                <AgentFlowToolComponent
-                  disabled={disabled}
-                  tools={flowTools}
-                  removeTool={removeTool}
-                />
-              )}
-              {mcpTools.length > 0 && (
-                <AgentMcpToolComponent
-                  disabled={disabled}
-                  tools={mcpTools}
-                  removeTool={removeTool}
-                />
-              )}
-            </Accordion>
+            {groupedTools}
             <AddToolDropdown disabled={disabled} align="start">
               {asRows ? (
                 <div className="mt-[7px]">

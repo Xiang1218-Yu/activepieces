@@ -320,6 +320,8 @@ export const ExecuteAgentRunJobData = z.object({
     waitpointId: z.string().optional(),
     tools: z.array(AgentTool).optional(),
     flowTools: z.array(ResolvedAgentFlowTool).optional(),
+    // Turn-scoped suppression, carried from the chat request. Applies to this run only.
+    disabledToolNames: z.array(z.string().min(1)).optional(),
     structuredOutput: z.array(AgentOutputField).optional(),
     maxSteps: z.number().int().positive().optional(),
     provider: z.enum(AIProviderName).optional(),

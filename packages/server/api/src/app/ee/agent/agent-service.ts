@@ -516,7 +516,9 @@ function toSummary(agent: Agent, project?: Project): AgentSummary {
         projectDisplayName: project?.displayName ?? '',
         projectIsPrivate: project?.type === ProjectType.PERSONAL,
         toolCount: agent.draft.tools.length,
-        toolPieceNames: agent.draft.tools.flatMap((tool) => tool.type === AgentToolType.PIECE ? [tool.pieceMetadata.pieceName] : []),
+        // First-occurrence order of the saved tools array, so the card stack matches the order the
+        // model reaches the tools in a run and the order shown in the chat session list.
+        toolPieceNames: unique(agent.draft.tools.flatMap((tool) => tool.type === AgentToolType.PIECE ? [tool.pieceMetadata.pieceName] : [])),
     }
 }
 

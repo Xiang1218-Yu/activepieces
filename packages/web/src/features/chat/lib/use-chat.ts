@@ -261,6 +261,7 @@ export function useAgentChat({
   onConversationCreated,
   onCreditsExhausted,
   onTurnEnd,
+  getDisabledToolNames,
 }: {
   agentId?: string;
   builder?: boolean;
@@ -268,6 +269,9 @@ export function useAgentChat({
   onConversationCreated?: (conversationId: string) => void;
   onCreditsExhausted?: () => void;
   onTurnEnd?: () => void;
+  // Session-scoped suppression, read at send time so toggles apply to the next message without
+  // re-mounting the chat box. Never part of the saved agent.
+  getDisabledToolNames?: () => string[];
 } = {}) {
   const store = useChatStoreApi();
 
@@ -304,6 +308,8 @@ export function useAgentChat({
   onTitleUpdateRef.current = onTitleUpdate;
   const onConversationCreatedRef = useRef(onConversationCreated);
   onConversationCreatedRef.current = onConversationCreated;
+  const getDisabledToolNamesRef = useRef(getDisabledToolNames);
+  getDisabledToolNamesRef.current = getDisabledToolNames;
 
   const handleTitleUpdate = useCallback((title: string) => {
     onTitleUpdateRef.current?.(title);
@@ -566,8 +572,8 @@ export function useAgentChat({
     sendStatus.type === 'error'
       ? sendStatus.message
       : streamError
-      ? streamError
-      : null;
+        ? streamError
+        : null;
 
   const wasCancelled = sendStatus.type === 'cancelled';
 
@@ -742,6 +748,7 @@ export function useAgentChat({
           ...(options?.messageSource
             ? { messageSource: options.messageSource }
             : {}),
+          disabledToolNames: getDisabledToolNamesRef.current?.() ?? [],
         }),
       );
       if (sendError) {

@@ -58,14 +58,28 @@ export function AgentFlowToolDialog({
   }, [data]);
 
   const handleSave = () => {
-    const noneFlowTools: AgentTool[] = tools.filter(
+    // Add/remove in place: keep every non-flow tool where it is, and replace the current flow
+    // block at its position so drag-to-reorder is never undone by opening this dialog.
+    const firstFlowIndex = tools.findIndex(
+      (tool) => tool.type === AgentToolType.FLOW,
+    );
+    const insertAt =
+      firstFlowIndex === -1
+        ? tools.length
+        : tools
+            .slice(0, firstFlowIndex)
+            .filter((tool) => tool.type !== AgentToolType.FLOW).length;
+    const nonFlowTools = tools.filter(
       (tool) => tool.type !== AgentToolType.FLOW,
     );
-
-    const updatedTools = [...noneFlowTools, ...selectedFlows];
+    const updatedTools = [
+      ...nonFlowTools.slice(0, insertAt),
+      ...selectedFlows,
+      ...nonFlowTools.slice(insertAt),
+    ];
     setShowAddFlowDialog(false);
     onToolsUpdate(updatedTools);
-    toast('Changes to flow tools saved');
+    toast(t('Changes to flow tools saved'));
   };
 
   return (

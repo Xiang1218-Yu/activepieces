@@ -83,7 +83,9 @@ import {
   KnowledgeBaseSection,
   AIModelSelector,
   AgentStructuredOutput,
+  SessionToolsPopover,
   useAgentsAvailable,
+  useSessionToolStore,
 } from '@/features/agents';
 import { AgentChatWelcome } from '@/features/agents/agent-chat-welcome';
 import { AgentMark } from '@/features/agents/agent-mark';
@@ -442,7 +444,7 @@ const ConfigureFields = ({
       .filter((tool) => tool.type !== AgentToolType.KNOWLEDGE_BASE)
       .map((tool) =>
         tool.type === AgentToolType.PIECE
-          ? tool.pieceMetadata?.pieceName ?? tool.toolName
+          ? (tool.pieceMetadata?.pieceName ?? tool.toolName)
           : tool.type,
       ),
   ).length;
@@ -759,8 +761,8 @@ const AgentEditScreen = ({
   const blockedFromTesting = isNil(testGate)
     ? null
     : testGate === 'model'
-    ? t('Pick a model before testing')
-    : t('Write instructions before testing');
+      ? t('Pick a model before testing')
+      : t('Write instructions before testing');
   const live = liveValuesOf(agent);
   const hasChanges =
     isNil(live) || !agentEditState.sameConfig({ left: values, right: live });
@@ -1090,6 +1092,10 @@ const TestPane = ({
         onTurnEnd={onEdited}
         placeholder={t('Try {name}...', { name: agent.displayName })}
         footerNote={buildCapabilityNote(agent)}
+        toolsControl={<SessionToolsPopover agent={agent} side="top" />}
+        getDisabledToolNames={() =>
+          useSessionToolStore.getState().disabledNames(agent.id)
+        }
         emptyState={<AgentTestWelcome />}
       />
     </div>
@@ -1286,6 +1292,10 @@ const AgentEditorContent = () => {
             agentId={agent.id}
             conversationId={openedConversationId ?? null}
             onConversationCreated={writeConversationParam}
+            getDisabledToolNames={() =>
+              useSessionToolStore.getState().disabledNames(agent.id)
+            }
+            toolsControl={<SessionToolsPopover agent={agent} side="top" />}
             placeholder={t('Ask {name}...', { name: agent.displayName })}
             footerNote={buildCapabilityNote(agent)}
             emptyState={

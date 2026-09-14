@@ -62,6 +62,8 @@ export function AIChatBox({
   conversationId,
   onTitleUpdate,
   onConversationCreated,
+  toolsControl,
+  getDisabledToolNames,
 }: AIChatBoxProps) {
   const { data: chatProvider, isLoading: isLoadingProviders } =
     aiProviderQueries.useChatProvider();
@@ -83,6 +85,8 @@ export function AIChatBox({
         conversationId={conversationId}
         onTitleUpdate={onTitleUpdate}
         onConversationCreated={onConversationCreated}
+        toolsControl={toolsControl}
+        getDisabledToolNames={getDisabledToolNames}
       />
     </ChatStoreProvider>
   );
@@ -99,6 +103,8 @@ function ChatBoxContent({
   conversationId: initialConversationId,
   onTitleUpdate,
   onConversationCreated,
+  toolsControl,
+  getDisabledToolNames,
 }: AIChatBoxProps) {
   const queryClient = useQueryClient();
   const credits = useCreditsState();
@@ -124,6 +130,7 @@ function ChatBoxContent({
     onConversationCreated,
     onTurnEnd,
     onCreditsExhausted: () => credits.setCreditsExhausted(true),
+    getDisabledToolNames,
   });
 
   const setStoreConversationId = useChatStoreContext(
@@ -237,10 +244,10 @@ function ChatBoxContent({
     personalization.isResearching
       ? 'researching'
       : personalization.status === ChatPersonalizationStatus.FAILED
-      ? 'failed'
-      : personalization.roleInput
-      ? 'ready'
-      : 'unanswered';
+        ? 'failed'
+        : personalization.roleInput
+          ? 'ready'
+          : 'unanswered';
 
   const initialAnswers = onboardingPrefillUtils.resolveInitialAnswers({
     view: {
@@ -262,7 +269,7 @@ function ChatBoxContent({
     setPromptOpen(false);
     personalization.start({
       role: answers.role,
-      company: companyLocked ? '' : answers.companyDomain ?? answers.company,
+      company: companyLocked ? '' : (answers.companyDomain ?? answers.company),
     });
     void handleSend(
       t(
@@ -455,8 +462,8 @@ function ChatBoxContent({
               (showOnboardingCard
                 ? t('Or tell me the work you want gone')
                 : isEmpty
-                ? t('Ask, build, or run a task...')
-                : undefined)
+                  ? t('Ask, build, or run a task...')
+                  : undefined)
             }
             banner={
               showBanner && !hasBlockingCard ? (
@@ -467,6 +474,7 @@ function ChatBoxContent({
                 />
               ) : null
             }
+            toolsControl={toolsControl}
           />
           {footerNote !== undefined && (
             <p className="pt-[9px] text-center text-[11.5px] leading-[14px] text-muted-foreground">
@@ -518,4 +526,6 @@ type AIChatBoxProps = {
   conversationId?: string | null;
   onConversationCreated?: (conversationId: string) => void;
   onTitleUpdate?: (title: string) => void;
+  toolsControl?: React.ReactNode;
+  getDisabledToolNames?: () => string[];
 };

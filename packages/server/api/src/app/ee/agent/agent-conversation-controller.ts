@@ -101,7 +101,7 @@ export const agentConversationController: FastifyPluginAsyncZod = async (app) =>
     })
 
     app.post('/conversations/:id/messages', SendMessageRoute, async (request, reply) => {
-        const { content, runId: clientRunId, files } = request.body
+        const { content, runId: clientRunId, files, disabledToolNames } = request.body
         const conversationId = request.params.id
         const userId = request.principal.id
         const platformId = request.principal.platform.id
@@ -185,6 +185,13 @@ export const agentConversationController: FastifyPluginAsyncZod = async (app) =>
         })
         await assertCreditsAndAppSumoNotExceeded({ platformId, log })
 
+        // Session-scoped suppression (request body only, never stored on the agent): the tools the
+        // person turned off for this conversation. Applied here, when this turn is enqueued, so a
+        // running turn keeps the snapshot it started with and later saves cannot change it.
+        const suppressedNames = new Set((disabledToolNames ?? []).map((name) => name.trim()).filter((name) => name.length > 0))
+        const sessionTools = isNil(agentConfig) || suppressedNames.size === 0
+            ? agentConfig?.tools
+            : agentConfig.tools.filter((tool) => !suppressedNames.has(tool.toolName))
         await jobQueue(runLog).add({
             id: apId(),
             type: JobType.ONE_TIME,
@@ -203,7 +210,7 @@ export const agentConversationController: FastifyPluginAsyncZod = async (app) =>
                 ...spreadIfDefined('messageSource', request.body.messageSource),
                 ...(isBuilder ? { promptOverride: { system: agentPrompt.buildBuilderSystemPrompt({ agent }) } } : {}),
                 ...(isNil(agentConfig) || isBuilder ? {} : {
-                    tools: agentConfig.tools,
+                    tools: sessionTools,
                     structuredOutput: agentConfig.structuredOutput,
                     maxSteps: agentConfig.maxSteps,
                     ...spreadIfDefined('provider', agentConfig.provider ?? undefined),

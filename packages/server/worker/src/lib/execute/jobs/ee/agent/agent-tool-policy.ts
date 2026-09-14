@@ -46,9 +46,7 @@ function selectToolsForSource({ source, groups }: { source: AgentRunSource, grou
         }
     }
     const configured = {
-        ...groups.configuredPiece,
-        ...groups.configuredFlow,
-        ...groups.knowledgeBase,
+        ...groups.configured,
     }
     if (source === AgentRunSource.AGENT_BUILDER) {
         return {
@@ -89,6 +87,9 @@ export type AgentToolGroups = {
     email: ToolSet
     agentSurface: ToolSet
     mcp: ToolSet
+    // All author-configured tools, keyed in the saved array order so the model reaches them in the
+    // same order the person arranged them on the agent page.
+    configured: ToolSet
     configuredPiece: ToolSet
     configuredFlow: ToolSet
     knowledgeBase: ToolSet
