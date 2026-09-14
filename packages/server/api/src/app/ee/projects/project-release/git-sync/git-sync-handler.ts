@@ -1,19 +1,46 @@
+import { ActivepiecesError, ErrorCode, isNil } from '@activepieces/core-utils'
 import { FlowState, FlowVersionState,
+    GitPushOperationType,
     GitRepo,
     PopulatedTable,
+    PushEverythingGitRepoRequest,
     PushFlowsGitRepoRequest,
+    PushGitRepoRequest,
     PushTablesGitRepoRequest,
 } from '@activepieces/shared'
 import { FastifyBaseLogger } from 'fastify'
 import { SimpleGit } from 'simple-git'
 import { flowService } from '../../../../flows/flow/flow.service'
+import { projectService } from '../../../../project/project-service'
 import { fieldService } from '../../../../tables/field/field.service'
 import { tableService } from '../../../../tables/table/table.service'
+import { projectStateService } from '../project-state/project-state.service'
 import { gitHelper } from './git-helper'
 import { gitSyncHelper } from './git-sync-helper'
 import { gitRepoService } from './git-sync.service'
 
 export const gitSyncHandler = (log: FastifyBaseLogger) => ({
+    async execute({ gitRepoId, userId, request }: ExecuteParams): Promise<void> {
+        const gitRepo = await gitRepoService(log).getOrThrow({ id: gitRepoId })
+        const platformId = await getPlatformId({ log, projectId: gitRepo.projectId })
+        switch (request.type) {
+            case GitPushOperationType.PUSH_EVERYTHING:
+                await pushEverything({ gitRepoId, platformId, userId, request, log })
+                break
+            case GitPushOperationType.PUSH_FLOW:
+                await this.flows.push({ id: gitRepoId, platformId, userId, request })
+                break
+            case GitPushOperationType.DELETE_FLOW:
+                await this.flows.delete({ id: gitRepoId, platformId, userId, request })
+                break
+            case GitPushOperationType.PUSH_TABLE:
+                await this.tables.push({ id: gitRepoId, userId, request })
+                break
+            case GitPushOperationType.DELETE_TABLE:
+                await this.tables.delete({ id: gitRepoId, userId, request })
+                break
+        }
+    },
     flows: {
         async push({ id, platformId, userId, request }: FlowOperationParams): Promise<void> {
             const gitRepo = await gitRepoService(log).getOrThrow({ id })
@@ -164,4 +191,58 @@ type ConnectionContextParams = {
     connectionsFolderPath: string
     gitRepo: GitRepo
     platformId: string
+}
+
+type ExecuteParams = {
+    gitRepoId: string
+    userId: string
+    request: PushGitRepoRequest
+}
+
+async function pushEverything({ gitRepoId, platformId, userId, request, log }: {
+    gitRepoId: string
+    platformId: string
+    userId: string
+    request: PushEverythingGitRepoRequest
+    log: FastifyBaseLogger
+}): Promise<void> {
+    const gitRepo = await gitRepoService(log).getOrThrow({ id: gitRepoId })
+    const projectState = await projectStateService(log).getProjectState(gitRepo.projectId, log)
+    if (!isNil(projectState.flows) && projectState.flows.length > 0) {
+        await gitSyncHandler(log).flows.push({
+            id: gitRepoId,
+            platformId,
+            userId,
+            request: {
+                type: GitPushOperationType.PUSH_FLOW,
+                commitMessage: request.commitMessage ?? `chore: push all flows ${projectState.flows.map((flow) => flow.version.displayName).join(', ')}`,
+                externalFlowIds: projectState.flows.map((flow) => flow.externalId),
+            },
+        })
+    }
+    if (!isNil(projectState.tables) && projectState.tables.length > 0) {
+        await gitSyncHandler(log).tables.push({
+            id: gitRepoId,
+            userId,
+            request: {
+                type: GitPushOperationType.PUSH_TABLE,
+                commitMessage: request.commitMessage ?? `chore: push all tables ${projectState.tables.map((table) => table.name).join(', ')}`,
+                externalTableIds: projectState.tables.map((table) => table.externalId),
+            },
+        })
+    }
+}
+
+async function getPlatformId({ log, projectId }: { log: FastifyBaseLogger, projectId: string }): Promise<string> {
+    const project = await projectService(log).getOne(projectId)
+    if (isNil(project)) {
+        throw new ActivepiecesError({
+            code: ErrorCode.ENTITY_NOT_FOUND,
+            params: {
+                entityType: 'project',
+                entityId: projectId,
+            },
+        })
+    }
+    return project.platformId
 }

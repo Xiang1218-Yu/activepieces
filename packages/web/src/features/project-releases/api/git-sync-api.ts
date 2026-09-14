@@ -1,6 +1,7 @@
 import { SeekPage } from '@activepieces/core-utils';
 import {
   ConfigureRepoRequest,
+  GitPushOperation,
   GitRepo,
   PushGitRepoRequest,
 } from '@activepieces/shared';
@@ -23,7 +24,21 @@ export const gitSyncApi = {
   disconnect(repoId: string) {
     return api.delete<void>(`/v1/git-repos/${repoId}`);
   },
-  push(repoId: string, request: PushGitRepoRequest) {
-    return api.post<void>(`/v1/git-repos/${repoId}/push`, request);
+  startPush(repoId: string, request: PushGitRepoRequest) {
+    return api.post<GitPushOperation>(
+      `/v1/git-repos/${repoId}/push-operations`,
+      request,
+    );
+  },
+  retryPush(operationId: string) {
+    return api.post<GitPushOperation>(
+      `/v1/git-repos/push-operations/${operationId}/retry`,
+    );
+  },
+  getLatestPush(projectId: string) {
+    return api.get<GitPushOperation | null>(
+      `/v1/git-repos/push-operations/latest`,
+      { projectId },
+    );
   },
 };

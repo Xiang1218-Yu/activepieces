@@ -70,3 +70,34 @@ export const ConfigureRepoRequest = z.object({
 })
 
 export type ConfigureRepoRequest = z.infer<typeof ConfigureRepoRequest>
+
+export enum GitPushOperationStatus {
+    IN_PROGRESS = 'IN_PROGRESS',
+    SUCCEEDED = 'SUCCEEDED',
+    FAILED = 'FAILED',
+}
+
+export enum GitPushFailureReason {
+    AUTHENTICATION_FAILED = 'AUTHENTICATION_FAILED',
+    CONFLICT = 'CONFLICT',
+    REMOTE_REJECTED = 'REMOTE_REJECTED',
+    NOT_CONFIGURED = 'NOT_CONFIGURED',
+    UNKNOWN = 'UNKNOWN',
+}
+
+export const GitPushOperation = z.object({
+    ...BaseModelSchema,
+    projectId: z.string(),
+    gitRepoId: z.string(),
+    status: z.nativeEnum(GitPushOperationStatus),
+    operationType: z.nativeEnum(GitPushOperationType),
+    request: PushGitRepoRequest,
+    commitMessage: Nullable(z.string()),
+    triggeredBy: Nullable(z.string()),
+    failureReason: Nullable(z.nativeEnum(GitPushFailureReason)),
+    errorMessage: Nullable(z.string()),
+    startedAt: z.string(),
+    finishedAt: Nullable(z.string()),
+})
+
+export type GitPushOperation = z.infer<typeof GitPushOperation>

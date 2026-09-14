@@ -66,7 +66,6 @@ export const tablesController: FastifyPluginAsyncZod = async (fastify) => {
             externalId: table.externalId,
             userId: request.principal.id,
             projectId: request.projectId,
-            platformId: request.principal.platform.id,
             log: request.log,
         })
         await tableService.delete({

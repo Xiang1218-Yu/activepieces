@@ -96,6 +96,10 @@ export type ApErrorParams =
     | ExecutionStateMissingParams
     | GenericErrorParams
     | SandboxCapacityExceededParams
+    | GitRepoNotConfiguredParams
+    | GitPushConflictParams
+    | GitPushInProgressParams
+    | GitPushFailedParams
 
 export type TriggerExecutionFailedParams = BaseErrorParams<ErrorCode.TRIGGER_EXECUTION_FAILED, {
     flowId: FlowId
@@ -531,6 +535,18 @@ export type GenericErrorParams = BaseErrorParams<ErrorCode.GENERIC_ERROR, {
 
 export type SandboxCapacityExceededParams = BaseErrorParams<ErrorCode.SANDBOX_CAPACITY_EXCEEDED, Record<string, never>>
 
+export type GitRepoNotConfiguredParams = BaseErrorParams<ErrorCode.GIT_REPO_NOT_CONFIGURED, Record<string, never>>
+
+export type GitPushConflictParams = BaseErrorParams<ErrorCode.GIT_PUSH_CONFLICT, {
+    message: string
+}>
+
+export type GitPushInProgressParams = BaseErrorParams<ErrorCode.GIT_PUSH_IN_PROGRESS, Record<string, never>>
+
+export type GitPushFailedParams = BaseErrorParams<ErrorCode.GIT_PUSH_FAILED, {
+    message: string
+}>
+
 export enum ErrorCode {
     INTERNAL_SERVER_ERROR = 'INTERNAL_SERVER_ERROR',
     MACHINE_NOT_CONNECTED = 'MACHINE_NOT_CONNECTED',
@@ -611,4 +627,8 @@ export enum ErrorCode {
     RESUME_LOGS_FILE_MISSING = 'RESUME_LOGS_FILE_MISSING',
     EXECUTION_STATE_MISSING = 'EXECUTION_STATE_MISSING',
     GENERIC_ERROR = 'GENERIC_ERROR',
+    GIT_REPO_NOT_CONFIGURED = 'GIT_REPO_NOT_CONFIGURED',
+    GIT_PUSH_IN_PROGRESS = 'GIT_PUSH_IN_PROGRESS',
+    GIT_PUSH_CONFLICT = 'GIT_PUSH_CONFLICT',
+    GIT_PUSH_FAILED = 'GIT_PUSH_FAILED',
 }

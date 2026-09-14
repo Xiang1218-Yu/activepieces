@@ -2,16 +2,20 @@ import { isNil, Permission } from '@activepieces/core-utils';
 import {
   ConfigureRepoRequest,
   GitBranchType,
+  GitPushOperation,
+  GitPushOperationStatus,
   GitRepo,
   PushGitRepoRequest,
 } from '@activepieces/shared';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { useAuthorization } from '@/hooks/authorization-hooks';
 import { platformHooks } from '@/hooks/platform-hooks';
 import { authenticationSession } from '@/lib/authentication-session';
 
 import { gitSyncApi } from '../api/git-sync-api';
+
+const PUSH_OPERATION_POLL_INTERVAL_MS = 2000;
 
 export const gitSyncHooks = {
   useGitSync: (projectId: string, enabled: boolean) => {
@@ -26,6 +30,20 @@ export const gitSyncHooks = {
       isLoading: query.isLoading,
       refetch: query.refetch,
     };
+  },
+  useLatestPushOperation: (projectId: string, enabled: boolean) => {
+    return useQuery({
+      queryKey: ['git-push-operation', 'latest', projectId],
+      queryFn: () => gitSyncApi.getLatestPush(projectId),
+      enabled,
+      refetchInterval: (query) => {
+        return query.state.data?.status === GitPushOperationStatus.IN_PROGRESS
+          ? PUSH_OPERATION_POLL_INTERVAL_MS
+          : false;
+      },
+      refetchOnWindowFocus: false,
+      staleTime: 0,
+    });
   },
   useShowPushToGit: () => {
     const { platform } = platformHooks.useCurrentPlatform();
@@ -46,18 +64,55 @@ export const gitSyncHooks = {
 };
 
 export const gitSyncMutations = {
-  usePushToGit: ({ onSuccess }: { onSuccess: () => void }) => {
+  useStartPush: ({
+    onSuccess,
+    onError,
+  }: {
+    onSuccess?: (operation: GitPushOperation) => void;
+    onError?: (error: unknown) => void;
+  } = {}) => {
+    const queryClient = useQueryClient();
     return useMutation({
-      mutationFn: async ({
+      mutationFn: ({
         gitSyncId,
         request,
       }: {
         gitSyncId: string;
         request: PushGitRepoRequest;
-      }) => {
-        await gitSyncApi.push(gitSyncId, request);
+      }) => gitSyncApi.startPush(gitSyncId, request),
+      onSuccess: (operation) => {
+        const projectId = authenticationSession.getProjectId()!;
+        queryClient.setQueryData(
+          ['git-push-operation', 'latest', projectId],
+          operation,
+        );
+        void queryClient.invalidateQueries({
+          queryKey: ['git-push-operation', 'latest', projectId],
+        });
+        onSuccess?.(operation);
       },
-      onSuccess,
+      onError,
+    });
+  },
+  useRetryPush: ({
+    onSuccess,
+  }: {
+    onSuccess?: (operation: GitPushOperation) => void;
+  } = {}) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: (operationId: string) => gitSyncApi.retryPush(operationId),
+      onSuccess: (operation) => {
+        const projectId = authenticationSession.getProjectId()!;
+        queryClient.setQueryData(
+          ['git-push-operation', 'latest', projectId],
+          operation,
+        );
+        void queryClient.invalidateQueries({
+          queryKey: ['git-push-operation', 'latest', projectId],
+        });
+        onSuccess?.(operation);
+      },
     });
   },
   useConfigureGitSync: ({

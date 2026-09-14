@@ -151,7 +151,6 @@ export const flowController: FastifyPluginAsyncZod = async (app) => {
             externalId: flow.externalId,
             userId: request.principal.id,
             projectId: request.projectId,
-            platformId: request.principal.platform.id,
             log: request.log,
         })
         await flowService(request.log).delete({

@@ -1,5 +1,6 @@
 import { assertNotNullOrUndefined } from '@activepieces/core-utils';
 import {
+  GitPushOperationStatus,
   GitPushOperationType,
   PushGitRepoRequest,
   PushFlowsGitRepoRequest,
@@ -8,12 +9,13 @@ import {
   Table,
 } from '@activepieces/shared';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { t } from 'i18next';
+import { AlertTriangle } from 'lucide-react';
 import React from 'react';
 import { Resolver, useForm } from 'react-hook-form';
-import { toast } from 'sonner';
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -34,8 +36,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { platformHooks } from '@/hooks/platform-hooks';
 import { authenticationSession } from '@/lib/authentication-session';
 
-import { gitSyncApi } from '../api/git-sync-api';
-import { gitSyncHooks } from '../hooks/git-sync-hooks';
+import { gitSyncMutations, gitSyncHooks } from '../hooks/git-sync-hooks';
+import { gitPushErrorUtils } from '../lib/git-push-error-utils';
+
+import { GitPushStatusPanel } from './git-push-status-panel';
 
 type PushToGitDialogProps =
   | {
@@ -51,13 +55,21 @@ type PushToGitDialogProps =
 
 const PushToGitDialog = (props: PushToGitDialogProps) => {
   const [open, setOpen] = React.useState(false);
+  const [inlineError, setInlineError] = React.useState<string | null>(null);
 
   const showPushToGit = gitSyncHooks.useShowPushToGit();
   const { platform } = platformHooks.useCurrentPlatform();
+  const projectId = authenticationSession.getProjectId()!;
   const { gitSync } = gitSyncHooks.useGitSync(
-    authenticationSession.getProjectId()!,
+    projectId,
     platform.plan.environmentsEnabled,
   );
+  const { data: latestOperation } = gitSyncHooks.useLatestPushOperation(
+    projectId,
+    open && platform.plan.environmentsEnabled,
+  );
+  const queryClient = useQueryClient();
+
   const form = useForm<PushGitRepoRequest>({
     defaultValues: {
       type:
@@ -79,63 +91,119 @@ const PushToGitDialog = (props: PushToGitDialogProps) => {
     ) as Resolver<PushGitRepoRequest>,
   });
 
-  const { mutate, isPending } = useMutation({
-    mutationFn: async (request: PushGitRepoRequest) => {
-      assertNotNullOrUndefined(gitSync, 'gitSync');
-      switch (props.type) {
-        case 'flow':
-          await gitSyncApi.push(gitSync.id, {
-            type: GitPushOperationType.PUSH_FLOW,
-            commitMessage: request.commitMessage,
-            externalFlowIds: props.flows.map((item) => item.externalId),
-          });
-          break;
-        case 'table':
-          await gitSyncApi.push(gitSync.id, {
-            type: GitPushOperationType.PUSH_TABLE,
-            commitMessage: request.commitMessage,
-            externalTableIds: props.tables.map((item) => item.externalId),
-          });
-          break;
-      }
-    },
-    onSuccess: () => {
-      toast.success(t('Pushed successfully'), {
-        duration: 3000,
-      });
-      setOpen(false);
-    },
-  });
+  const invalidateLatest = () => {
+    void queryClient.invalidateQueries({
+      queryKey: ['git-push-operation', 'latest', projectId],
+    });
+  };
+
+  const { mutate: startPush, isPending: isStarting } =
+    gitSyncMutations.useStartPush({
+      onSuccess: () => {
+        setInlineError(null);
+        invalidateLatest();
+      },
+      onError: (error) => {
+        setInlineError(gitPushErrorUtils.classifyStartError(error));
+      },
+    });
+
+  const { mutate: retryPush, isPending: isRetrying } =
+    gitSyncMutations.useRetryPush({
+      onSuccess: () => {
+        setInlineError(null);
+        invalidateLatest();
+      },
+    });
+
+  const isPushInProgress =
+    latestOperation?.status === GitPushOperationStatus.IN_PROGRESS;
+
+  const handleSubmit = (request: PushGitRepoRequest) => {
+    assertNotNullOrUndefined(gitSync, 'gitSync');
+    setInlineError(null);
+    startPush({
+      gitSyncId: gitSync.id,
+      request: {
+        ...request,
+        ...(props.type === 'flow'
+          ? {
+              type: GitPushOperationType.PUSH_FLOW,
+              externalFlowIds: props.flows.map((item) => item.externalId),
+            }
+          : {
+              type: GitPushOperationType.PUSH_TABLE,
+              externalTableIds: props.tables.map((item) => item.externalId),
+            }),
+      },
+    });
+  };
 
   if (!showPushToGit) {
     return null;
   }
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          form.reset();
+          setInlineError(null);
+        }
+      }}
+    >
       <DialogTrigger asChild>{props.children}</DialogTrigger>
       <DialogContent>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit((data) => mutate(data))}>
+          <form
+            onSubmit={form.handleSubmit(handleSubmit)}
+            className="flex flex-col gap-4"
+          >
             <DialogHeader>
               <DialogTitle>{t('Push to Git')}</DialogTitle>
             </DialogHeader>
-            <FormField
-              control={form.control}
-              name="commitMessage"
-              render={({ field }) => (
-                <FormItem className="gap-2 flex flex-col">
-                  <FormLabel>{t('Commit Message')}</FormLabel>
-                  <FormControl>
-                    <Textarea {...field} />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-            <div className="text-sm text-gray-500 mt-2">
-              {t(
-                'Enter a commit message to describe the changes you want to push.',
-              )}
-            </div>
+
+            {gitSync && (
+              <>
+                <GitPushStatusPanel
+                  operation={latestOperation}
+                  repo={gitSync}
+                  onRetry={() =>
+                    latestOperation && retryPush(latestOperation.id)
+                  }
+                  isRetrying={isRetrying}
+                />
+                <FormField
+                  control={form.control}
+                  name="commitMessage"
+                  render={({ field }) => (
+                    <FormItem className="gap-2 flex flex-col">
+                      <FormLabel>{t('Commit Message')}</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          disabled={isPushInProgress || isStarting}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <div className="text-sm text-gray-500">
+                  {t(
+                    'Enter a commit message to describe the changes you want to push.',
+                  )}
+                </div>
+                {inlineError && (
+                  <Alert variant="destructive">
+                    <AlertTriangle className="size-4" />
+                    <AlertTitle>{t('Push could not start')}</AlertTitle>
+                    <AlertDescription>{inlineError}</AlertDescription>
+                  </Alert>
+                )}
+              </>
+            )}
             <DialogFooter>
               <Button
                 type="button"
@@ -143,17 +211,20 @@ const PushToGitDialog = (props: PushToGitDialogProps) => {
                 onClick={() => {
                   setOpen(false);
                   form.reset();
+                  setInlineError(null);
                 }}
               >
-                {t('Cancel')}
+                {t('Close')}
               </Button>
-              <Button
-                type="submit"
-                loading={isPending}
-                onClick={form.handleSubmit((data) => mutate(data))}
-              >
-                {t('Push')}
-              </Button>
+              {gitSync && (
+                <Button
+                  type="submit"
+                  loading={isStarting || isPushInProgress}
+                  disabled={isPushInProgress}
+                >
+                  {isPushInProgress ? t('Pushing…') : t('Push')}
+                </Button>
+              )}
             </DialogFooter>
           </form>
         </Form>

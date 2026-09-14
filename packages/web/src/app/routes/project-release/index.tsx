@@ -33,6 +33,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { projectReleaseQueries } from '@/features/project-releases';
+import { GitPushOperationWatcher } from '@/features/project-releases/components/git-push-operation-watcher';
 import { projectCollectionUtils } from '@/features/projects';
 import { useAuthorization } from '@/hooks/authorization-hooks';
 import { authenticationSession } from '@/lib/authentication-session';
@@ -163,6 +164,7 @@ const ProjectReleasesPage = () => {
 
   return (
     <div className="flex-col w-full gap-4">
+      <GitPushOperationWatcher />
       <DataTable
         emptyStateTextTitle={t('No project releases found')}
         emptyStateTextDescription={t('Create a project release to get started')}

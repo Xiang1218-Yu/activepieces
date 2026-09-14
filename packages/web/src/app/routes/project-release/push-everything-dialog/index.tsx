@@ -1,17 +1,18 @@
 import { assertNotNullOrUndefined } from '@activepieces/core-utils';
 import {
   GitBranchType,
+  GitPushOperationStatus,
   GitPushOperationType,
   PushEverythingGitRepoRequest,
 } from '@activepieces/shared';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { t } from 'i18next';
-import { Info } from 'lucide-react';
+import { AlertTriangle, Info } from 'lucide-react';
 import React from 'react';
 import { useForm } from 'react-hook-form';
-import { toast } from 'sonner';
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -34,7 +35,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { gitSyncApi, gitSyncHooks } from '@/features/project-releases';
+import { gitSyncHooks, gitSyncMutations } from '@/features/project-releases';
+import { GitPushStatusPanel } from '@/features/project-releases/components/git-push-status-panel';
+import { gitPushErrorUtils } from '@/features/project-releases/lib/git-push-error-utils';
 import { platformHooks } from '@/hooks/platform-hooks';
 import { authenticationSession } from '@/lib/authentication-session';
 
@@ -44,12 +47,20 @@ type PushEverythingDialogProps = {
 
 const PushEverythingDialog = (props: PushEverythingDialogProps) => {
   const [open, setOpen] = React.useState(false);
+  const [inlineError, setInlineError] = React.useState<string | null>(null);
 
   const { platform } = platformHooks.useCurrentPlatform();
+  const projectId = authenticationSession.getProjectId()!;
   const { gitSync } = gitSyncHooks.useGitSync(
-    authenticationSession.getProjectId()!,
+    projectId,
     platform.plan.environmentsEnabled,
   );
+  const { data: latestOperation } = gitSyncHooks.useLatestPushOperation(
+    projectId,
+    open && platform.plan.environmentsEnabled,
+  );
+  const queryClient = useQueryClient();
+
   const form = useForm<PushEverythingGitRepoRequest>({
     defaultValues: {
       type: GitPushOperationType.PUSH_EVERYTHING,
@@ -58,34 +69,70 @@ const PushEverythingDialog = (props: PushEverythingDialogProps) => {
     resolver: zodResolver(PushEverythingGitRepoRequest),
   });
 
-  const { mutate, isPending } = useMutation({
-    mutationFn: async (request: PushEverythingGitRepoRequest) => {
-      assertNotNullOrUndefined(gitSync, 'gitSync');
-      await gitSyncApi.push(gitSync.id, {
-        type: GitPushOperationType.PUSH_EVERYTHING,
-        commitMessage: request.commitMessage,
-      });
-    },
-    onSuccess: () => {
-      toast.success(t('Everything is pushed successfully'), {
-        duration: 3000,
-      });
-      setOpen(false);
-    },
-  });
+  const invalidateLatest = () => {
+    void queryClient.invalidateQueries({
+      queryKey: ['git-push-operation', 'latest', projectId],
+    });
+  };
+
+  const { mutate: startPush, isPending: isStarting } =
+    gitSyncMutations.useStartPush({
+      onSuccess: () => {
+        setInlineError(null);
+        invalidateLatest();
+      },
+      onError: (error) =>
+        setInlineError(gitPushErrorUtils.classifyStartError(error)),
+    });
+
+  const { mutate: retryPush, isPending: isRetrying } =
+    gitSyncMutations.useRetryPush({
+      onSuccess: () => {
+        setInlineError(null);
+        invalidateLatest();
+      },
+    });
+
+  const isPushInProgress =
+    latestOperation?.status === GitPushOperationStatus.IN_PROGRESS;
 
   if (!gitSync || gitSync.branchType !== GitBranchType.DEVELOPMENT) {
     return null;
   }
+
+  const handleSubmit = (request: PushEverythingGitRepoRequest) => {
+    assertNotNullOrUndefined(gitSync, 'gitSync');
+    setInlineError(null);
+    startPush({ gitSyncId: gitSync.id, request });
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          form.reset();
+          setInlineError(null);
+        }
+      }}
+    >
       <DialogTrigger asChild>{props.children}</DialogTrigger>
       <DialogContent>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit((data) => mutate(data))}>
+          <form
+            onSubmit={form.handleSubmit(handleSubmit)}
+            className="flex flex-col gap-4"
+          >
             <DialogHeader>
               <DialogTitle>{t('Push Everything to Git')}</DialogTitle>
             </DialogHeader>
+            <GitPushStatusPanel
+              operation={latestOperation}
+              repo={gitSync}
+              onRetry={() => latestOperation && retryPush(latestOperation.id)}
+              isRetrying={isRetrying}
+            />
             <FormField
               control={form.control}
               name="commitMessage"
@@ -105,7 +152,10 @@ const PushEverythingDialog = (props: PushEverythingDialogProps) => {
                     </Tooltip>
                   </div>
                   <FormControl>
-                    <Textarea {...field} />
+                    <Textarea
+                      {...field}
+                      disabled={isPushInProgress || isStarting}
+                    />
                   </FormControl>
                   <div className="text-sm text-gray-500">
                     {t(
@@ -115,6 +165,13 @@ const PushEverythingDialog = (props: PushEverythingDialogProps) => {
                 </FormItem>
               )}
             />
+            {inlineError && (
+              <Alert variant="destructive">
+                <AlertTriangle className="size-4" />
+                <AlertTitle>{t('Push could not start')}</AlertTitle>
+                <AlertDescription>{inlineError}</AlertDescription>
+              </Alert>
+            )}
             <DialogFooter>
               <Button
                 type="button"
@@ -122,16 +179,17 @@ const PushEverythingDialog = (props: PushEverythingDialogProps) => {
                 onClick={() => {
                   setOpen(false);
                   form.reset();
+                  setInlineError(null);
                 }}
               >
-                {t('Cancel')}
+                {t('Close')}
               </Button>
               <Button
                 type="submit"
-                loading={isPending}
-                onClick={form.handleSubmit((data) => mutate(data))}
+                loading={isStarting || isPushInProgress}
+                disabled={isPushInProgress}
               >
-                {t('Push')}
+                {isPushInProgress ? t('Pushing…') : t('Push')}
               </Button>
             </DialogFooter>
           </form>

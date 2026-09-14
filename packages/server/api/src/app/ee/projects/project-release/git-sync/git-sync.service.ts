@@ -6,6 +6,7 @@ import { paginationHelper } from '../../../../helper/pagination/pagination-utils
 import { system } from '../../../../helper/system/system'
 import { projectStateService } from '../project-state/project-state.service'
 import { gitHelper } from './git-helper'
+import { gitPushOperationService } from './git-push-operation.service'
 import { gitSyncHandler } from './git-sync-handler'
 import { gitSyncHelper } from './git-sync-helper'
 import { GitRepoEntity } from './git-sync.entity'
@@ -61,7 +62,7 @@ export const gitRepoService = (_log: FastifyBaseLogger) => ({
         const repos = await repo().findBy({ projectId })
         return paginationHelper.createPage<GitRepo>(repos, null)
     },
-    async onDeleted({ type, externalId, userId, projectId, platformId, log }: { type: GitPushOperationType, externalId: string, userId: string, projectId: string, platformId: string, log: FastifyBaseLogger }): Promise<void> {
+    async onDeleted({ type, externalId, userId, projectId, log }: { type: GitPushOperationType, externalId: string, userId: string, projectId: string, log: FastifyBaseLogger }): Promise<void> {
         const edition = system.getEdition()
         if (![ApEdition.CLOUD, ApEdition.ENTERPRISE].includes(edition)) {
             return
@@ -70,42 +71,29 @@ export const gitRepoService = (_log: FastifyBaseLogger) => ({
         if (isNil(gitRepo) || gitRepo.branchType === GitBranchType.PRODUCTION) {
             return
         }
-        switch (type) {
-            case GitPushOperationType.DELETE_FLOW: {
-                await gitRepoService(log).push({
-                    id: gitRepo.id,
-                    platformId,
-                    userId,
-                    request: {
-                        type: GitPushOperationType.DELETE_FLOW,
-                        commitMessage: `chore: deleted flow ${externalId}`,
-                        externalFlowIds: [externalId],
-                    },
-                    log,
-                })
-                break
+        const request = buildDeleteRequest({ type, externalId })
+        if (isNil(request)) {
+            throw new ActivepiecesError({
+                code: ErrorCode.VALIDATION,
+                params: {
+                    message: `Only supported operations are ${GitPushOperationType.DELETE_FLOW} and ${GitPushOperationType.DELETE_TABLE}`,
+                },
+            })
+        }
+        try {
+            await gitPushOperationService(log).start({
+                projectId: gitRepo.projectId,
+                gitRepoId: gitRepo.id,
+                userId,
+                request,
+            })
+        }
+        catch (error) {
+            if (error instanceof ActivepiecesError && error.error.code === ErrorCode.GIT_PUSH_IN_PROGRESS) {
+                log.warn({ projectId, externalId, type }, 'skipping automatic git push for deleted resource, another push is in progress')
+                return
             }
-            case GitPushOperationType.DELETE_TABLE: {
-                await gitRepoService(log).push({
-                    id: gitRepo.id,
-                    platformId,
-                    userId,
-                    request: {
-                        type: GitPushOperationType.DELETE_TABLE,
-                        commitMessage: `chore: deleted table ${externalId}`,
-                        externalTableIds: [externalId],
-                    },
-                    log,
-                })
-                break
-            }
-            default:
-                throw new ActivepiecesError({
-                    code: ErrorCode.VALIDATION,
-                    params: {
-                        message: `Only supported operations are ${GitPushOperationType.DELETE_FLOW} and ${GitPushOperationType.DELETE_TABLE}`,
-                    },
-                })
+            throw error
         }
     },
     async push({ id, platformId, userId, request, log }: PushParams): Promise<void> {
@@ -214,4 +202,23 @@ type PullGitRepoRequest = {
     gitRepo: GitRepo
     userId: string
     log: FastifyBaseLogger
+}
+
+function buildDeleteRequest({ type, externalId }: { type: GitPushOperationType, externalId: string }): PushGitRepoRequest | null {
+    switch (type) {
+        case GitPushOperationType.DELETE_FLOW:
+            return {
+                type: GitPushOperationType.DELETE_FLOW,
+                commitMessage: `chore: deleted flow ${externalId}`,
+                externalFlowIds: [externalId],
+            }
+        case GitPushOperationType.DELETE_TABLE:
+            return {
+                type: GitPushOperationType.DELETE_TABLE,
+                commitMessage: `chore: deleted table ${externalId}`,
+                externalTableIds: [externalId],
+            }
+        default:
+            return null
+    }
 }

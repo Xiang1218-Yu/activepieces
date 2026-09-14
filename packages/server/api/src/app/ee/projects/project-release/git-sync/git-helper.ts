@@ -25,8 +25,60 @@ async function commitAndPush(
 ): Promise<void> {
     await git.add('.')
     await git.commit(commitMessage)
-    await git.push('origin', gitRepo.branch)
+    try {
+        await git.push('origin', gitRepo.branch)
+    }
+    catch (error) {
+        throw toClassifiedGitError(error, 'push')
+    }
 }
+
+function toClassifiedGitError(error: unknown, phase: GitPhase): ActivepiecesError {
+    const message = error instanceof Error ? error.message : String(error)
+    if (isAuthenticationFailure(message)) {
+        return new ActivepiecesError({
+            code: ErrorCode.INVALID_GIT_CREDENTIALS,
+            params: { message },
+        })
+    }
+    if (phase === 'push' && isNonFastForward(message)) {
+        return new ActivepiecesError({
+            code: ErrorCode.GIT_PUSH_CONFLICT,
+            params: { message },
+        })
+    }
+    return new ActivepiecesError({
+        code: ErrorCode.GIT_PUSH_FAILED,
+        params: { message },
+    })
+}
+
+function isAuthenticationFailure(message: string): boolean {
+    return [
+        'permission denied (publickey',
+        'permission denied, please try again',
+        'could not read from remote repository',
+        'authentication failed',
+        'host key verification failed',
+        'invalid username or password',
+        'fatal: auth',
+        'publickey',
+    ].some((needle) => message.toLowerCase().includes(needle))
+}
+
+function isNonFastForward(message: string): boolean {
+    return [
+        '[rejected]',
+        'non-fast-forward',
+        'fetch first',
+        'updates were rejected',
+        'failed to push some refs',
+        'cannot push',
+        'behind its remote counterpart',
+    ].some((needle) => message.toLowerCase().includes(needle))
+}
+
+type GitPhase = 'clone' | 'push'
 
 async function createGitRepoAndReturnPaths(
     log: FastifyBaseLogger,
@@ -56,19 +108,28 @@ async function createGitRepoAndReturnPaths(
     await createOrGetSshKeyPath({ keyPath, sshPrivateKey: gitRepo.sshPrivateKey ?? '' })
     const git = await initGitRepo(keyPath, gitRepo.remoteUrl, tmpFolder, gitRepo.branch)
 
-    const user = await userService(log).getOneOrFail({
-        id: userId,
-    })
-    const identity = await userIdentityService(log).getBasicInformation(user.identityId)
-    const { email, firstName, lastName } = identity
-    await git.addConfig('user.email', email)
-    await git.addConfig('user.name', `${firstName} ${lastName}`)
+    await configureGitUser({ git, log, userId })
     return {
         git,
         flowFolderPath,
         stateFolderPath,
         connectionsFolderPath,
         tablesFolderPath,
+    }
+}
+
+async function configureGitUser({ git, log, userId }: { git: SimpleGit, log: FastifyBaseLogger, userId: string }): Promise<void> {
+    try {
+        const user = await userService(log).getOneOrFail({ id: userId })
+        const identity = await userIdentityService(log).getBasicInformation(user.identityId)
+        const { email, firstName, lastName } = identity
+        await git.addConfig('user.email', email)
+        await git.addConfig('user.name', `${firstName} ${lastName}`)
+    }
+    catch (error) {
+        log.warn({ err: error, userId }, 'could not resolve git commit author, falling back to system identity')
+        await git.addConfig('user.email', 'system@activepieces.com')
+        await git.addConfig('user.name', 'Activepieces')
     }
 }
 
@@ -98,7 +159,12 @@ async function initGitRepo(
     await git.addConfig('protocol.file.allow', 'never')
     await git.addRemote('origin', remoteUrl)
     await git.branch(['-M', branch])
-    await git.pull('origin', branch)
+    try {
+        await git.pull('origin', branch)
+    }
+    catch (error) {
+        throw toClassifiedGitError(error, 'clone')
+    }
     return git
 }
 
@@ -143,6 +209,9 @@ async function validateConnection(request: ConfigureRepoRequest): Promise<void> 
         await initGitRepo(keyPath, remoteUrl, tmpFolder, branch)
     }
     catch (error) {
+        if (error instanceof ActivepiecesError) {
+            throw error
+        }
         throw new ActivepiecesError({
             code: ErrorCode.INVALID_GIT_CREDENTIALS,
             params: {

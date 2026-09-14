@@ -28,6 +28,7 @@ import { ConcurrencyPoolEntity } from '../ee/platform/concurrency-pool/concurren
 import { PlatformPlanEntity } from '../ee/platform/platform-plan/platform-plan.entity'
 import { ProjectMemberEntity } from '../ee/projects/project-members/project-member.entity'
 import { ProjectPlanEntity } from '../ee/projects/project-plan/project-plan.entity'
+import { GitPushOperationEntity } from '../ee/projects/project-release/git-sync/git-push-operation.entity'
 import { GitRepoEntity } from '../ee/projects/project-release/git-sync/git-sync.entity'
 import { ProjectReleaseEntity } from '../ee/projects/project-release/project-release.entity'
 import { ProjectRoleEntity } from '../ee/projects/project-role/project-role.entity'
@@ -130,6 +131,7 @@ function getEntities(): EntitySchema<unknown>[] {
         ApiKeyEntity,
         TemplateEntity,
         GitRepoEntity,
+        GitPushOperationEntity,
         AuditEventEntity,
         ProjectReleaseEntity,
         PlatformAnalyticsReportEntity,
