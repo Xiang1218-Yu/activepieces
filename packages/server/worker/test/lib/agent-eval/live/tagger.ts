@@ -9,8 +9,9 @@ const FETCH_TOOL = 'ap_fetch_url'
 // code tools are first-class execution paths; counting only ap_execute_action mislabels them.
 const WORK_TOOLS = [EXECUTE_TOOL, EMAIL_TOOL, CODE_TOOL]
 // A turn that ends here (with no work) is correctly blocked awaiting a connection the env lacks —
-// that is NOT "gave up". Without connections, most piece scenarios legitimately end here.
-const CONNECTION_BLOCK_TOOLS = ['ap_show_connection_picker', 'ap_show_connection_required', 'ap_show_mcp_reconnect']
+// that is NOT "gave up". Without connections, most piece scenarios legitimately end here. The plan
+// card gates the first connection card, so a turn stopped there is the same blocked state.
+const CONNECTION_BLOCK_TOOLS = ['ap_show_connection_picker', 'ap_show_connection_required', 'ap_show_mcp_reconnect', 'ap_show_action_plan']
 const SCHEMA_TOOLS = ['ap_get_piece_props', 'ap_prepare_action']
 const DISCOVERY_TOOLS = ['ap_research_pieces', 'ap_get_piece_props', 'ap_prepare_action', 'ap_resolve_property_options', 'ap_resolve_property_chain', 'ap_discover_action_auth', 'ap_explore_data']
 const ACTION_TOOLS = ['ap_execute_action', 'ap_explore_data']

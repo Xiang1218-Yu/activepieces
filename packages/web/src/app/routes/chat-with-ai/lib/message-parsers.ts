@@ -89,6 +89,15 @@ export type ConnectionPickerData = {
   }>;
 };
 
+export type ActionPlanData = {
+  summary: string;
+  apps?: Array<{
+    piece: string;
+    displayName: string;
+  }>;
+  sideEffects?: string[];
+};
+
 export type ProjectPickerData = {
   question?: string;
   suggestedProjects: Array<{

@@ -30,11 +30,13 @@ import {
   OutcomeCardBlock,
 } from '../lib/message-blocks';
 import {
+  ActionPlanData,
   ConnectionPickerData,
   getTextFromParts,
   ProjectPickerData,
 } from '../lib/message-parsers';
 
+import { ActionPlanCard } from './action-plan-card';
 import { ActionReceiptCard } from './action-receipt-card';
 import { ThinkingBlock } from './activity-accordion';
 import { BatchProgressCard } from './batch-progress-card';
@@ -591,6 +593,15 @@ function DisplayToolCard({
           onResolve={(payload) => onResolve(toolCallId, payload)}
           isInteractive={isInteractive}
           selectedConnectionLabel={selectedLabel}
+        />
+      );
+    }
+    case 'ap_show_action_plan': {
+      if (!isInteractive && toolOutput?.['approved'] !== true) return null;
+      return (
+        <ActionPlanCard
+          plan={data as unknown as ActionPlanData}
+          isInteractive={false}
         />
       );
     }

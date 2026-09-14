@@ -49,8 +49,18 @@ vi.mock('ai', async (importOriginal) => ({
     embed: () => mockEmbed(),
 }))
 
+const { mockGetSelectedConnection, mockGetPlanConfirmation, mockStorePlanConfirmation } = vi.hoisted(() => ({
+    mockGetSelectedConnection: vi.fn().mockResolvedValue(null),
+    mockGetPlanConfirmation: vi.fn().mockResolvedValue(false),
+    mockStorePlanConfirmation: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('../../../../../src/app/ee/agent/agent-approval-gate', () => ({
-    agentApprovalGate: {},
+    agentApprovalGate: {
+        getSelectedConnection: mockGetSelectedConnection,
+        getPlanConfirmation: mockGetPlanConfirmation,
+        storePlanConfirmation: mockStorePlanConfirmation,
+    },
 }))
 
 const { mockGetOneWithoutValue } = vi.hoisted(() => ({
@@ -295,6 +305,70 @@ describe('agentRpcHandlers.executeAgentTool — chat-only tools are refused off 
     it('lets a CHAT run through to the normal handler', async () => {
         await expect(callExecuteAgentTool({ toolName: '__cancel_check', source: 'CHAT' })).resolves.toEqual({ result: false })
     })
+})
+
+describe('agentRpcHandlers.executeAgentTool — the connection plan gate', () => {
+    beforeEach(() => {
+        mockGetSelectedConnection.mockClear().mockResolvedValue(null)
+        mockGetPlanConfirmation.mockClear().mockResolvedValue(false)
+        mockStorePlanConfirmation.mockClear().mockResolvedValue(undefined)
+    })
+
+    async function callConnectionGateCheck(pieceName: string): Promise<{ result: { needsPlan: boolean } }> {
+        const { agentRpcHandlers } = await import('../../../../../src/app/ee/agent/agent-rpc-handlers')
+        return agentRpcHandlers(noopLogger as never).executeAgentTool({
+            toolName: '__connection_gate_check',
+            toolInput: { pieceName },
+            conversationId: 'conv-1',
+            platformId: 'plat-1',
+            userId: 'user-1',
+            source: 'CHAT' as never,
+        }) as Promise<{ result: { needsPlan: boolean } }>
+    }
+
+    it('needs a plan when the conversation has neither a selected connection nor a confirmed plan', async () => {
+        const { result } = await callConnectionGateCheck('@activepieces/piece-slack')
+
+        expect(result.needsPlan).toBe(true)
+    })
+
+    it('does not re-ask when a connection for the piece was already selected this conversation', async () => {
+        mockGetSelectedConnection.mockResolvedValue({ externalId: 'conn-1', label: 'My Slack', projectId: 'proj-1' })
+
+        const { result } = await callConnectionGateCheck('@activepieces/piece-slack')
+
+        expect(result.needsPlan).toBe(false)
+    })
+
+    it('does not re-ask once a plan was already confirmed this conversation', async () => {
+        mockGetPlanConfirmation.mockResolvedValue(true)
+
+        const { result } = await callConnectionGateCheck('@activepieces/piece-slack')
+
+        expect(result.needsPlan).toBe(false)
+    })
+
+    it('stores the plan confirmation for the conversation', async () => {
+        const { agentRpcHandlers } = await import('../../../../../src/app/ee/agent/agent-rpc-handlers')
+        const response = await agentRpcHandlers(noopLogger as never).executeAgentTool({
+            toolName: '__store_plan_confirmation',
+            toolInput: {},
+            conversationId: 'conv-1',
+            platformId: 'plat-1',
+            userId: 'user-1',
+            source: 'CHAT' as never,
+        })
+
+        expect(response).toEqual({ result: { success: true } })
+        expect(mockStorePlanConfirmation).toHaveBeenCalledWith({ conversationId: 'conv-1' })
+    })
+
+    it.each(['__connection_gate_check', '__store_plan_confirmation'])(
+        'refuses %s for a FLOW_STEP run',
+        async (toolName) => {
+            await expect(callExecuteAgentTool({ toolName, source: 'FLOW_STEP' })).rejects.toThrow()
+        },
+    )
 })
 
 async function callUpdateProjectContext(input: { conversationId: string, runId?: string, projectId: string | null }): Promise<void> {

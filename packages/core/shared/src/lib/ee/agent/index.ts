@@ -312,6 +312,7 @@ export type AgentToolOutputs = {
     | { success: boolean, error?: string, output?: unknown }
     ap_show_connection_required: { displayed: boolean }
     ap_show_connection_picker: { displayed: boolean }
+    ap_show_action_plan: { displayed: boolean }
     ap_show_project_picker: { displayed: boolean }
     ap_show_questions: { displayed: boolean }
     ap_show_quick_replies: { displayed: boolean }

@@ -590,10 +590,31 @@ function buildToolSet({ ctx, eventEmitter, log, phaseState, taintState, mcpToolS
     const piecesTheAuthorGaveAnAccount = new Set(source !== AgentRunSource.AGENT ? [] : configuredPieceTools
         .filter((tool) => !isNil(tool.pieceMetadata.predefinedInput?.auth))
         .map((tool) => tool.pieceMetadata.pieceName))
+    // The first connection card of a chat conversation waits on a confirmed plan. The turn-local
+    // flag mirrors the server store so a store hiccup can't loop plan card → refused picker.
+    let planConfirmedThisTurn = false
     const displayTools = agentWorkerTools.createDisplayTools({
         waitForApproval,
         displayToolTimeoutMs: DISPLAY_TOOL_TIMEOUT_MS,
         accountAlreadyChosenFor: (pieceName) => piecesTheAuthorGaveAnAccount.has(pieceName),
+        connectionPlanGate: source === AgentRunSource.CHAT ? {
+            needsPlanConfirmation: async ({ pieceName }) => {
+                if (planConfirmedThisTurn) {
+                    return false
+                }
+                const { data } = await tryCatch(() => ctx.apiClient.executeAgentTool({
+                    toolName: '__connection_gate_check', toolInput: { pieceName }, platformId, userId, source, conversationId,
+                }))
+                const result = data?.result
+                return isObject(result) && result['needsPlan'] === true
+            },
+            onPlanConfirmed: async () => {
+                planConfirmedThisTurn = true
+                await tryCatch(() => ctx.apiClient.executeAgentTool({
+                    toolName: '__store_plan_confirmation', toolInput: {}, platformId, userId, source, conversationId,
+                }))
+            },
+        } : undefined,
         onConnectionSelected: async ({ pieceName, connectionExternalId, label, projectId: connProjectId }) => {
             selectedConnectionByPiece.set(pieceName, connectionExternalId)
             await tryCatch(() => ctx.apiClient.executeAgentTool({

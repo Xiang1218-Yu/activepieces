@@ -3,13 +3,17 @@ import { tool, ToolExecutionOptions, ToolSet } from 'ai'
 import { z } from 'zod'
 import { GateDecision, gateNoResponseMessage, normalizePieceName, questionTextSchema, questionTitleSchema, richOptionSchema } from './tool-primitives'
 
-export function createDisplayTools({ waitForApproval, displayToolTimeoutMs, onConnectionSelected, onConnectorReconnected, onGateOpened, accountAlreadyChosenFor }: {
+export function createDisplayTools({ waitForApproval, displayToolTimeoutMs, onConnectionSelected, onConnectorReconnected, onGateOpened, accountAlreadyChosenFor, connectionPlanGate }: {
     waitForApproval: (params: { gateId: string, timeoutMs?: number }) => Promise<GateDecision>
     displayToolTimeoutMs: number
     onConnectionSelected?: (params: { pieceName: string, connectionExternalId: string, label: string, projectId: string }) => Promise<void>
     onConnectorReconnected?: (connectorUuid: string) => void
     onGateOpened?: (params: { gateId: string, toolName: string, displayName: string, toolInput: Record<string, unknown> }) => Promise<void>
     accountAlreadyChosenFor?: (pieceName: string) => boolean
+    connectionPlanGate?: {
+        needsPlanConfirmation: (params: { pieceName: string }) => Promise<boolean>
+        onPlanConfirmed: () => Promise<void>
+    }
 }): ToolSet {
     function refuseIfAccountAlreadyChosen(input: Record<string, unknown>): { content: { type: string, text: string }[] } | undefined {
         const piece = typeof input['piece'] === 'string' ? input['piece'] : ''
@@ -20,16 +24,30 @@ export function createDisplayTools({ waitForApproval, displayToolTimeoutMs, onCo
         return { content: [{ type: 'text', text: `This agent already runs on the ${displayName} account its author chose, so there is nothing to connect or reconnect here and this card was not shown. Use the ${displayName} tool. If it fails, say exactly what failed — do not describe it as a connection problem unless the failure says the credentials were rejected.` }] }
     }
 
-    function blockingExecute({ dismissMessage, successKey, toolName, getDisplayName, onApproved, refuseWhen }: {
+    async function refuseIfPlanNotConfirmed(input: Record<string, unknown>): Promise<{ content: { type: string, text: string }[] } | undefined> {
+        const gate = connectionPlanGate
+        if (isNil(gate) || input['status'] === 'error') {
+            return undefined
+        }
+        const piece = typeof input['piece'] === 'string' ? input['piece'] : ''
+        const { data: needsPlan, error } = await tryCatch(() => gate.needsPlanConfirmation({ pieceName: normalizePieceName(piece) }))
+        if (!isNil(error) || needsPlan !== true) {
+            return undefined
+        }
+        return { content: [{ type: 'text', text: 'The user has not confirmed a plan for this conversation yet, so this connection card was NOT shown. Call ap_show_action_plan first with a short summary of what you will do, the apps involved, and what will change — then call this tool again once they confirm.' }] }
+    }
+
+    function blockingExecute({ dismissMessage, successKey, toolName, getDisplayName, onApproved, refuseWhen, preflight }: {
         dismissMessage: string | ((input: Record<string, unknown>) => string)
         successKey?: string
         toolName: string
         getDisplayName?: (input: Record<string, unknown>) => string
         onApproved?: (params: { input: Record<string, unknown>, payload?: Record<string, unknown> }) => Promise<Record<string, unknown>>
         refuseWhen?: (input: Record<string, unknown>) => { content: { type: string, text: string }[] } | undefined
+        preflight?: (input: Record<string, unknown>) => Promise<{ content: { type: string, text: string }[] } | undefined>
     }) {
         return async (input: Record<string, unknown>, options: ToolExecutionOptions<undefined>) => {
-            const refusal = refuseWhen?.(input)
+            const refusal = refuseWhen?.(input) ?? await preflight?.(input)
             if (!isNil(refusal)) {
                 return refusal
             }
@@ -57,6 +75,30 @@ export function createDisplayTools({ waitForApproval, displayToolTimeoutMs, onCo
     }
 
     return {
+        ap_show_action_plan: tool({
+            description: 'Show a short execution plan — what you will do, the apps involved, and what will change (side effects) — and wait for the user to confirm it. Call this BEFORE the FIRST connection card of a conversation (ap_show_connection_picker / ap_show_connection_required), once ap_discover_action_auth says a connection is needed; the connection card only opens after the plan is confirmed here. Skip it entirely when a connection is already selected (alreadyConnected) or a plan was already confirmed this conversation — never make the user confirm twice. If they decline, do not show any connection card: adjust the plan from their feedback and re-confirm with a fresh card.',
+            inputSchema: z.object({
+                summary: z.string().describe('The plan in 1-2 plain sentences — what you will do once everything is connected'),
+                apps: z.array(z.object({
+                    piece: z.string().describe('Piece short name, e.g. "gmail", "slack"'),
+                    displayName: z.string().describe('Human-readable app name, e.g. "Gmail", "Slack"'),
+                })).min(1).describe('Every app the plan needs a connection for'),
+                sideEffects: z.array(z.string()).min(1).describe('One short line per visible effect, e.g. "Sends a message to #general on Slack". Cover everything that sends, writes, or deletes.'),
+            }),
+            execute: blockingExecute({
+                toolName: 'ap_show_action_plan',
+                getDisplayName: () => 'plan confirmation',
+                dismissMessage: 'The user did not confirm that plan. Do NOT show any connection card or run the planned actions — the conversation continues: acknowledge, ask what they would like to change, and only re-confirm with a fresh ap_show_action_plan once the plan matches what they want.',
+                onApproved: async () => {
+                    const gate = connectionPlanGate
+                    if (!isNil(gate)) {
+                        await tryCatch(() => gate.onPlanConfirmed())
+                    }
+                    return { approved: true }
+                },
+            }),
+        }),
+
         ap_show_connection_required: tool({
             description: 'Display the connection card for a piece that needs auth. The card lists every account the user has for this piece, pre-selects one, and offers to connect a new account — so this works whether the user has zero, one, or many. After they pick or connect, briefly confirm before proceeding. If they dismiss, respect it — do not proceed without a connection. Prefer ap_show_connection_picker; this is an alias kept for compatibility.',
             inputSchema: z.object({
@@ -67,6 +109,7 @@ export function createDisplayTools({ waitForApproval, displayToolTimeoutMs, onCo
             execute: blockingExecute({
                 toolName: 'ap_show_connection_required',
                 refuseWhen: refuseIfAccountAlreadyChosen,
+                preflight: refuseIfPlanNotConfirmed,
                 dismissMessage: 'The user chose not to connect this service. Stop and ask: "Would you like me to continue building with a placeholder you can connect later, or would you prefer to stop here?"',
                 onApproved: async ({ input, payload = {} }) => {
                     const connectionExternalId = payload['connectionExternalId']
@@ -109,7 +152,7 @@ export function createDisplayTools({ waitForApproval, displayToolTimeoutMs, onCo
         }),
 
         ap_show_connection_picker: tool({
-            description: 'The connection card for a piece that needs auth. Use it whenever a piece needs a connection — it lists every account the user has for that piece, pre-selects one, and offers to connect a new account, so the same card covers zero, one, or many existing connections. Just provide the piece name; the system manages connection details. It returns the chosen connection\'s `connectionExternalId` — pass that exact value as `auth` to ap_get_piece_props / ap_resolve_property_options / ap_execute_action (never guess or use the label). After the user picks or connects, briefly confirm the account chosen. If they dismiss without selecting, do not pick a connection on their behalf.',
+            description: 'The connection card for a piece that needs auth. Use it whenever a piece needs a connection — it lists every account the user has for that piece, pre-selects one, and offers to connect a new account, so the same card covers zero, one, or many existing connections. Just provide the piece name; the system manages connection details. It returns the chosen connection\'s `connectionExternalId` — pass that exact value as `auth` to ap_get_piece_props / ap_resolve_property_options / ap_execute_action (never guess or use the label). Before the FIRST connection card of a conversation, the user must have confirmed an ap_show_action_plan — the card refuses to open without one. After the user picks or connects, briefly confirm the account chosen. If they dismiss without selecting, do not pick a connection on their behalf.',
             inputSchema: z.object({
                 piece: z.string().describe('Piece short name'),
                 displayName: z.string().describe('Human-readable piece name'),
@@ -117,6 +160,7 @@ export function createDisplayTools({ waitForApproval, displayToolTimeoutMs, onCo
             execute: blockingExecute({
                 toolName: 'ap_show_connection_picker',
                 refuseWhen: refuseIfAccountAlreadyChosen,
+                preflight: refuseIfPlanNotConfirmed,
                 dismissMessage: (input) => `The user chose not to select a ${typeof input['displayName'] === 'string' ? input['displayName'] : 'service'} account. Do not pick one on their behalf. Ask: "Would you like me to continue building with a placeholder you can connect later, or would you prefer to stop here?"`,
                 onApproved: async ({ input, payload = {} }) => {
                     const connectionExternalId = payload['connectionExternalId']

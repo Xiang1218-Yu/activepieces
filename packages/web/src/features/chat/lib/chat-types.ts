@@ -48,6 +48,7 @@ const DISPLAY_TOOL_NAMES = new Set([
   'ap_show_connection_required',
   'ap_show_mcp_reconnect',
   'ap_show_connection_picker',
+  'ap_show_action_plan',
   'ap_show_project_picker',
   'ap_show_questions',
   'ap_show_quick_replies',

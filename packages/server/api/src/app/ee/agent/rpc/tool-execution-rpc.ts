@@ -195,6 +195,23 @@ export const toolExecutionRpc = (log: FastifyBaseLogger) => ({
             }
             return { result: [] }
         }
+        if (input.toolName === '__connection_gate_check') {
+            const { pieceName } = input.toolInput
+            if (typeof input.conversationId === 'string' && typeof pieceName === 'string') {
+                const [selected, planConfirmed] = await Promise.all([
+                    agentApprovalGate.getSelectedConnection({ conversationId: input.conversationId, pieceName }),
+                    agentApprovalGate.getPlanConfirmation({ conversationId: input.conversationId }),
+                ])
+                return { result: { needsPlan: isNil(selected) && !planConfirmed } }
+            }
+            return { result: { needsPlan: false } }
+        }
+        if (input.toolName === '__store_plan_confirmation') {
+            if (typeof input.conversationId === 'string') {
+                await agentApprovalGate.storePlanConfirmation({ conversationId: input.conversationId })
+            }
+            return { result: { success: true } }
+        }
 
         log.debug({ tool: { name: input.toolName, input: input.toolInput } }, '[agentRpc#executeAgentTool] Tool invoke')
         const startedAt = Date.now()

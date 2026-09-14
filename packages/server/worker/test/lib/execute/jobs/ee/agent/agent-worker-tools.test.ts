@@ -383,6 +383,93 @@ describe('agentWorkerTools', () => {
         })
     })
 
+    describe('ap_show_action_plan and the connection plan gate', () => {
+        const PLAN_INPUT = {
+            summary: 'Send a welcome message to your Slack channel',
+            apps: [{ piece: 'slack', displayName: 'Slack' }],
+            sideEffects: ['Sends a message to #general on Slack'],
+        }
+        const TOOL_OPTIONS = { toolCallId: 'tc-plan', messages: [], abortSignal: undefined as unknown as AbortSignal }
+
+        const makeDisplayTools = ({ needsPlan, outcome = 'approved' }: { needsPlan: boolean, outcome?: 'approved' | 'declined' }) => {
+            const waitForApproval = vi.fn().mockResolvedValue({ outcome, payload: { connectionExternalId: 'conn-1', label: 'My Slack', projectId: 'p1' } })
+            const onPlanConfirmed = vi.fn().mockResolvedValue(undefined)
+            const onConnectionSelected = vi.fn().mockResolvedValue(undefined)
+            const tools = agentWorkerTools.createDisplayTools({
+                waitForApproval,
+                displayToolTimeoutMs: 1_000,
+                onConnectionSelected,
+                connectionPlanGate: {
+                    needsPlanConfirmation: vi.fn().mockResolvedValue(needsPlan),
+                    onPlanConfirmed,
+                },
+            })
+            return { tools, waitForApproval, onPlanConfirmed, onConnectionSelected }
+        }
+
+        it('records the plan confirmation when the user approves the plan', async () => {
+            const { tools, onPlanConfirmed } = makeDisplayTools({ needsPlan: false })
+
+            const result = await tools.ap_show_action_plan.execute(PLAN_INPUT, TOOL_OPTIONS)
+
+            expect(result).toEqual({ approved: true })
+            expect(onPlanConfirmed).toHaveBeenCalledTimes(1)
+        })
+
+        it('returns to a continuable conversation when the user declines the plan', async () => {
+            const { tools, onPlanConfirmed } = makeDisplayTools({ needsPlan: false, outcome: 'declined' })
+
+            const result = await tools.ap_show_action_plan.execute(PLAN_INPUT, TOOL_OPTIONS) as { dismissed: boolean, message: string }
+
+            expect(result.dismissed).toBe(true)
+            expect(result.message).toMatch(/did not confirm/i)
+            expect(onPlanConfirmed).not.toHaveBeenCalled()
+        })
+
+        it('refuses the connection picker until a plan is confirmed, without opening the gate', async () => {
+            const { tools, waitForApproval } = makeDisplayTools({ needsPlan: true })
+
+            const result = await tools.ap_show_connection_picker.execute({ piece: 'slack', displayName: 'Slack' }, TOOL_OPTIONS) as { content: Array<{ text: string }> }
+
+            expect(result.content[0].text).toMatch(/ap_show_action_plan/)
+            expect(waitForApproval).not.toHaveBeenCalled()
+        })
+
+        it('opens the connection picker directly once the plan is confirmed', async () => {
+            const { tools, waitForApproval, onConnectionSelected } = makeDisplayTools({ needsPlan: false })
+
+            const result = await tools.ap_show_connection_picker.execute({ piece: 'slack', displayName: 'Slack' }, TOOL_OPTIONS)
+
+            expect(waitForApproval).toHaveBeenCalledWith({ gateId: 'tc-plan', timeoutMs: 1_000 })
+            expect(result).toEqual({ selected: true, label: 'My Slack', connectionExternalId: 'conn-1' })
+            expect(onConnectionSelected).toHaveBeenCalledWith({ pieceName: '@activepieces/piece-slack', connectionExternalId: 'conn-1', label: 'My Slack', projectId: 'p1' })
+        })
+
+        it('skips the plan check when reconnecting a broken connection', async () => {
+            const { tools, waitForApproval } = makeDisplayTools({ needsPlan: true })
+
+            await tools.ap_show_connection_required.execute({ piece: 'slack', displayName: 'Slack', status: 'error' }, TOOL_OPTIONS)
+
+            expect(waitForApproval).toHaveBeenCalled()
+        })
+
+        it('fails open when the plan check itself errors, so a store hiccup never blocks connecting', async () => {
+            const waitForApproval = vi.fn().mockResolvedValue({ outcome: 'approved', payload: {} })
+            const tools = agentWorkerTools.createDisplayTools({
+                waitForApproval,
+                displayToolTimeoutMs: 1_000,
+                connectionPlanGate: {
+                    needsPlanConfirmation: vi.fn().mockRejectedValue(new Error('redis down')),
+                    onPlanConfirmed: vi.fn(),
+                },
+            })
+
+            await tools.ap_show_connection_picker.execute({ piece: 'slack', displayName: 'Slack' }, TOOL_OPTIONS)
+
+            expect(waitForApproval).toHaveBeenCalled()
+        })
+    })
+
     describe('truncateLargeResult', () => {
         it('returns small results unchanged', () => {
             const small = { ok: true, items: [1, 2, 3] }

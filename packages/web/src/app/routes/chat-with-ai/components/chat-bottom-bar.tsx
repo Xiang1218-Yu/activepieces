@@ -12,10 +12,12 @@ import {
 import { cn } from '@/lib/utils';
 
 import {
+  ActionPlanData,
   ConnectionPickerData,
   ProjectPickerData,
 } from '../lib/message-parsers';
 
+import { ActionPlanCard } from './action-plan-card';
 import { ActionPreviewCard } from './action-preview-card';
 import { ChatCardSkeleton } from './chat-card-primitives';
 import { ChatInput } from './chat-input';
@@ -194,6 +196,14 @@ function BlockingDisplayCard({
         <ConnectionPickerCard
           picker={data as unknown as ConnectionPickerData}
           onResolve={(payload) => approveGate(toolCallId, payload)}
+          onDismiss={() => rejectGate(toolCallId)}
+        />
+      );
+    case 'ap_show_action_plan':
+      return (
+        <ActionPlanCard
+          plan={data as unknown as ActionPlanData}
+          onConfirm={() => approveGate(toolCallId)}
           onDismiss={() => rejectGate(toolCallId)}
         />
       );

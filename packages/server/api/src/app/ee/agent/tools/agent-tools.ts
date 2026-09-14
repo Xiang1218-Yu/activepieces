@@ -501,7 +501,7 @@ async function executeCrossProjectTool({ toolName, toolInput, platformId, userId
                         piece: normalizedPiece,
                         auth: selected.externalId,
                         connectionLabel: selected.label,
-                        note: 'A connection for this piece was already selected this conversation — pass this auth and do NOT show another connection picker.',
+                        note: 'A connection for this piece was already selected this conversation — pass this auth and do NOT show another connection picker or ap_show_action_plan card.',
                     }
                 }
             }

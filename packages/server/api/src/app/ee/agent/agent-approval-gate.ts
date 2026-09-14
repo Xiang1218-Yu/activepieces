@@ -11,6 +11,7 @@ const CHANNEL_PREFIX = 'tool-approval:'
 const CANCEL_KEY_PREFIX = 'chat-cancel:'
 const AVAILABLE_CONNECTIONS_PREFIX = 'chat-conn-avail:'
 const SELECTED_CONNECTION_PREFIX = 'chat-conn-sel:'
+const PLAN_CONFIRMATION_PREFIX = 'chat-plan-confirmed:'
 const PENDING_GATE_PREFIX = 'chat-pending-gate:v2:'
 
 function decisionKey(gateId: string): string {
@@ -133,6 +134,19 @@ async function getSelectedConnection({ conversationId, pieceName }: {
     return distributedStore.get<SelectedConnection>(`${SELECTED_CONNECTION_PREFIX}${conversationId}:${pieceName}`)
 }
 
+async function storePlanConfirmation({ conversationId }: {
+    conversationId: string
+}): Promise<void> {
+    await distributedStore.put(`${PLAN_CONFIRMATION_PREFIX}${conversationId}`, { confirmed: true }, CONNECTION_STORE_TTL_SECONDS)
+}
+
+async function getPlanConfirmation({ conversationId }: {
+    conversationId: string
+}): Promise<boolean> {
+    const raw = await distributedStore.get<{ confirmed: boolean }>(`${PLAN_CONFIRMATION_PREFIX}${conversationId}`)
+    return raw?.confirmed === true
+}
+
 async function storePendingGate({ conversationId, gate }: {
     conversationId: string
     gate: PendingGate
@@ -170,6 +184,8 @@ export const agentApprovalGate = {
     getAvailableConnections,
     storeSelectedConnection,
     getSelectedConnection,
+    storePlanConfirmation,
+    getPlanConfirmation,
     storePendingGate,
     getPendingGates,
     conversationIdForGate,

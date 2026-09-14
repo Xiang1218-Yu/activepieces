@@ -231,6 +231,27 @@ describe('buildMessageBlocks — one accordion per segment', () => {
     expect(blocks.map((b) => b.kind)).toEqual(['display-tool']);
   });
 
+  it('renders the action plan card as a display tool, not a thinking step', () => {
+    const blocks = buildMessageBlocks({
+      parts: [
+        tool({
+          name: 'ap_show_action_plan',
+          id: 'plan1',
+          input: {
+            summary: 'Send a welcome message to your Slack channel',
+            apps: [{ piece: 'slack', displayName: 'Slack' }],
+            sideEffects: ['Sends a message to #general on Slack'],
+          },
+          state: 'output-available',
+        }),
+      ],
+      isStreaming: false,
+      toolCallMeta: {},
+      claimedBuildIds: new Set(),
+    }).blocks;
+    expect(blocks.map((b) => b.kind)).toEqual(['display-tool']);
+  });
+
   it('drops an empty thinking segment that only produced cards', () => {
     const id = 'exec';
     const blocks = buildMessageBlocks({
